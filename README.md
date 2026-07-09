@@ -1,8 +1,8 @@
 # openpilot — Ioniq 6 custom build
 
-A personal build of openpilot for a **Hyundai Ioniq 6 (2023–24, HDA II)** running on a **comma 3X**.
+A personal build of openpilot for a **Hyundai Ioniq 6 (2023–24, non-HDA-II / Highway Driving Assist)** running on a **comma 3X**.
 
-Based on the `release-tizi` stable line (v2026.001.007) with Ioniq 6–specific tuning.
+Based on the `release-tizi` stable line (v2026.002.001) with Ioniq 6–specific tuning.
 
 ## Install on the device
 
@@ -12,7 +12,7 @@ In **Custom Software**, enter:
 installer.comma.ai/C4rohan/ioniq6-tizi-custom
 ```
 
-Requires the Hyundai **"P" harness** (CAN-FD).
+Requires the Hyundai **"L" harness** (CAN-FD, non-HDA-II).
 
 ## What's customized
 
