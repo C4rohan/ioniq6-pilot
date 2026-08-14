@@ -2,17 +2,36 @@
 
 A personal build of openpilot for a **Hyundai Ioniq 6 (2023–24, non-HDA-II / Highway Driving Assist)** running on a **comma 3X**.
 
-Based on the `release-tizi` stable line (v2026.002.001) with Ioniq 6–specific tuning.
+Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6–specific tuning.
 
-## Install on the device
+## Install on the comma 3X
 
-In **Custom Software**, enter:
+**Prerequisites:** comma 3X mounted, the Hyundai **"L" harness** (CAN-FD, non-HDA-II), and a WiFi connection.
 
-```
-installer.comma.ai/C4rohan/ioniq6-tizi-custom
-```
+### Already running this branch → just update
 
-Requires the Hyundai **"L" harness** (CAN-FD, non-HDA-II).
+No URL needed; the device tracks the branch.
+
+1. Car on, device booted and on **WiFi**.
+2. **Settings → Software → Check for Update → Download**, then **Install / Reboot**.
+3. Your on-device toggles carry over. (It also self-updates overnight on WiFi with the car off.)
+
+### Fresh install → enter the Custom Software URL
+
+1. If openpilot/sunnypilot is already installed: **Settings → Uninstall**, confirm, and let it reboot into the setup wizard. (A fresh 3X boots straight into the wizard.)
+2. Wizard: pick language → connect to **WiFi**.
+3. Choose **Custom Software** (not "openpilot").
+4. Enter exactly:
+
+   ```
+   installer.comma.ai/C4rohan/ioniq6-tizi-custom
+   ```
+
+5. Let it download, install, and reboot; then pair via [comma connect](https://connect.comma.ai/).
+6. Plug into the car with the **Hyundai "L" harness** and let it fingerprint the Ioniq 6.
+7. Enable your toggles: **MADS / Always-on Lateral**, **NNLC**, **Auto Lane Change**.
+
+> ⚠️ First drive after any install/update: treat it as a shakedown — empty road, hands ready — especially as this build carries a custom steering-torque tune.
 
 ## What's customized
 
