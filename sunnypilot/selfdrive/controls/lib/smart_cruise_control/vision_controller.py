@@ -97,7 +97,9 @@ class SmartCruiseControlVision:
       max_curve = self.max_pred_lat_acc / (v_ego**2)
 
       # Get the target velocity for the maximum curve
-      self.v_target = (_A_LAT_REG_MAX / max_curve) ** 0.5
+      # sunnypilot weather-adaptive lateral: shrink the lateral-accel budget in poor weather (1.0 when inactive)
+      a_lat_reg_max = _A_LAT_REG_MAX * getattr(self, 'weather_lat_accel_factor', 1.0)
+      self.v_target = (a_lat_reg_max / max_curve) ** 0.5
 
   def _update_state_machine(self) -> tuple[bool, bool]:
     # ENABLED, ENTERING, TURNING, LEAVING, OVERRIDING
