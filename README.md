@@ -41,6 +41,8 @@ No URL needed; the device tracks the branch.
 - **Acceleration profiles** (Eco / Normal / Sport, adapted from FrogPilot, MIT): scales how briskly it accelerates to the set speed. Never touches braking, following distance, or any safety limit; hard-capped at 2.5 m/s². Off by default (Normal).
 - **On-device settings server**: a small web page to edit the config files below from a phone browser on the car's network, instead of SSH. Off by default (not registered as a process) — see below.
 
+See **[SETTINGS.md](SETTINGS.md)** for the full settings guideline (fields, safe ranges, and how to enable/test safely).
+
 ### Enabling weather-adaptive driving
 
 It is **off by default** and needs a free [OpenWeatherMap](https://openweathermap.org/api) API key, which stays on the device and never goes in this repo.
