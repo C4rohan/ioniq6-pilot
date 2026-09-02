@@ -47,6 +47,7 @@ STALE_WEATHER_AGE = 3 * 3600.0   # s, drop offsets if a refresh has not succeede
 ERROR_LOG_PERIOD = 60.0          # s, rate limit for repeated error logging
 
 MIN_ACCEL_FACTOR = 0.3           # never cut max acceleration below 30% of normal
+MIN_LAT_ACCEL_FACTOR = 0.6       # never cut curve-speed lateral accel below 60% (avoid crawling curves)
 MAX_T_FOLLOW_OFFSET = 1.5        # s, hard cap on extra following time
 MAX_STOP_OFFSET_M = 5.0          # m, hard cap on extra stopped gap
 FOOT_TO_METER = 0.3048
@@ -74,10 +75,10 @@ DEFAULT_CONFIG = {
   "owm_api_key": "",
   "refresh_s": DEFAULT_REFRESH,
   "offsets": {
-    "rain": {"follow_s": 0.3, "stop_ft": 3, "accel_pct": 15},
-    "rain_storm": {"follow_s": 0.5, "stop_ft": 5, "accel_pct": 30},
-    "snow": {"follow_s": 0.7, "stop_ft": 8, "accel_pct": 40},
-    "low_visibility": {"follow_s": 0.4, "stop_ft": 4, "accel_pct": 20},
+    "rain": {"follow_s": 0.3, "stop_ft": 3, "accel_pct": 15, "lat_pct": 10},
+    "rain_storm": {"follow_s": 0.5, "stop_ft": 5, "accel_pct": 30, "lat_pct": 20},
+    "snow": {"follow_s": 0.7, "stop_ft": 8, "accel_pct": 40, "lat_pct": 30},
+    "low_visibility": {"follow_s": 0.4, "stop_ft": 4, "accel_pct": 20, "lat_pct": 15},
   },
 }
 
@@ -106,20 +107,21 @@ def merge_config(user) -> dict:
       cfg[k] = user[k]
   for name, vals in (user.get("offsets") or {}).items():
     if name in cfg["offsets"] and isinstance(vals, dict):
-      cfg["offsets"][name].update({k: v for k, v in vals.items() if k in ("follow_s", "stop_ft", "accel_pct")})
+      cfg["offsets"][name].update({k: v for k, v in vals.items() if k in ("follow_s", "stop_ft", "accel_pct", "lat_pct")})
   return cfg
 
 
-def offsets_for(cfg: dict, category: str | None, v_ego: float) -> tuple[float, float, float]:
-  """Returns (t_follow_offset_s, stop_offset_m, accel_factor); neutral is (0, 0, 1)."""
+def offsets_for(cfg: dict, category: str | None, v_ego: float) -> tuple[float, float, float, float]:
+  """Returns (t_follow_offset_s, stop_offset_m, accel_factor, lat_accel_factor); neutral is (0, 0, 1, 1)."""
   if category is None:
-    return 0.0, 0.0, 1.0
+    return 0.0, 0.0, 1.0, 1.0
   o = cfg["offsets"].get(category, {})
   follow = float(np.clip(float(o.get("follow_s", 0.0)), 0.0, MAX_T_FOLLOW_OFFSET))
   stop_m = float(np.clip(float(o.get("stop_ft", 0.0)) * FOOT_TO_METER, 0.0, MAX_STOP_OFFSET_M))
   stop_m *= float(np.interp(max(v_ego, 0.0), STOP_OFFSET_FADE_BP, STOP_OFFSET_FADE_V))
   accel = float(np.clip(1.0 - float(o.get("accel_pct", 0.0)) / 100.0, MIN_ACCEL_FACTOR, 1.0))
-  return follow, stop_m, accel
+  lat = float(np.clip(1.0 - float(o.get("lat_pct", 0.0)) / 100.0, MIN_LAT_ACCEL_FACTOR, 1.0))
+  return follow, stop_m, accel, lat
 
 
 class WeatherAdaptive:
@@ -147,6 +149,7 @@ class WeatherAdaptive:
     self.t_follow_offset = 0.0
     self.stop_distance_offset_m = 0.0
     self.accel_factor = 1.0
+    self.lat_accel_factor = 1.0
 
   # -- config ---------------------------------------------------------------
 
@@ -253,6 +256,7 @@ class WeatherAdaptive:
           "t_follow_offset_s": round(self.t_follow_offset, 3),
           "stop_distance_offset_m": round(self.stop_distance_offset_m, 3),
           "accel_factor": round(self.accel_factor, 3),
+          "lat_accel_factor": round(self.lat_accel_factor, 3),
         },
       }
       tmp = STATUS_PATH + ".tmp"
@@ -280,7 +284,8 @@ class WeatherAdaptive:
         stale = bool(self.last_fetch_mono) and (now - self.last_fetch_mono) > STALE_WEATHER_AGE
       if stale:
         category = None
-      self.t_follow_offset, self.stop_distance_offset_m, self.accel_factor = offsets_for(self.cfg, category, v_ego)
+      self.t_follow_offset, self.stop_distance_offset_m, self.accel_factor, self.lat_accel_factor = \
+        offsets_for(self.cfg, category, v_ego)
 
       if now - self.status_written >= STATUS_WRITE_PERIOD:
         self.status_written = now
@@ -296,3 +301,5 @@ class WeatherAdaptive:
     self.t_follow_offset = 0.0
     self.stop_distance_offset_m = 0.0
     self.accel_factor = 1.0
+    self.lat_accel_factor = 1.0
+    self.lat_accel_factor = 1.0

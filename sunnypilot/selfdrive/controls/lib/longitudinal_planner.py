@@ -94,6 +94,7 @@ class LongitudinalPlannerSP:
     self._weather_mpc.weather_stop_distance_offset = self.weather.stop_distance_offset_m
     self.weather_accel_factor = self.weather.accel_factor
     self.accel_profile_factor = self.accel_profiles.update(sm['carState'].vEgo)
+    self.scc.vision.weather_lat_accel_factor = self.weather.lat_accel_factor  # weather-adaptive lateral (curve speed)
 
   def publish_longitudinal_plan_sp(self, sm: messaging.SubMaster, pm: messaging.PubMaster) -> None:
     plan_sp_send = messaging.new_message('longitudinalPlanSP')
