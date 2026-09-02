@@ -111,6 +111,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
     accel_clip = [ACCEL_MIN, get_max_accel(v_ego)]
+    accel_clip[1] *= getattr(self, 'weather_accel_factor', 1.0)  # sunnypilot weather-adaptive; 1.0 when inactive
     steer_angle_without_offset = sm['carState'].steeringAngleDeg - sm['liveParameters'].angleOffsetDeg
     accel_clip = limit_accel_in_turns(v_ego, steer_angle_without_offset, accel_clip, self.CP)
 

@@ -55,6 +55,7 @@ FCW_IDXS = T_IDXS < 5.0
 T_DIFFS = np.diff(T_IDXS, prepend=[0.])
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
+WEATHER_MAX_T_FOLLOW = 3.0  # sunnypilot weather-adaptive: cap on following time after the weather offset
 CRUISE_MIN_ACCEL = -1.2
 CRUISE_MAX_ACCEL = 1.6
 MIN_X_LEAD_FACTOR = 0.5
@@ -315,6 +316,8 @@ class LongitudinalMpc:
 
   def update(self, radarstate, v_cruise, personality=log.LongitudinalPersonality.standard):
     t_follow = get_T_FOLLOW(personality)
+    # sunnypilot weather-adaptive: extra following time in poor weather (0 when inactive)
+    t_follow = min(t_follow + getattr(self, 'weather_t_follow_offset', 0.0), WEATHER_MAX_T_FOLLOW)
     v_ego = self.x0[1]
     self.status = radarstate.leadOne.status or radarstate.leadTwo.status
 
@@ -326,6 +329,11 @@ class LongitudinalMpc:
     # and then treat that as a stopped car/obstacle at this new distance.
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(lead_xv_0[:,1])
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(lead_xv_1[:,1])
+    # sunnypilot weather-adaptive: treat leads as closer so we keep a larger stopped gap (0 when inactive)
+    weather_stop = getattr(self, 'weather_stop_distance_offset', 0.0)
+    if weather_stop > 0.0:
+      lead_0_obstacle = lead_0_obstacle - weather_stop
+      lead_1_obstacle = lead_1_obstacle - weather_stop
 
     # Fake an obstacle for cruise, this ensures smooth acceleration to set speed
     # when the leads are no factor.
