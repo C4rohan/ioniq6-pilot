@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy this file to /data/sunnypilot_weather.json on the device and paste your OpenWeatherMap key. Never commit the copy with the key.",
+  "enabled": true,
+  "owm_api_key": "PASTE_YOUR_OPENWEATHERMAP_KEY_HERE",
+  "refresh_s": 300,
+  "offsets": {
+    "_units": "follow_s = seconds added to following time; stop_ft = feet added to the stopped gap; accel_pct = percent reduction of max acceleration",
+    "rain":           {"follow_s": 0.3, "stop_ft": 3, "accel_pct": 15},
+    "rain_storm":     {"follow_s": 0.5, "stop_ft": 5, "accel_pct": 30},
+    "snow":           {"follow_s": 0.7, "stop_ft": 8, "accel_pct": 40},
+    "low_visibility": {"follow_s": 0.4, "stop_ft": 4, "accel_pct": 20}
+  }
+}

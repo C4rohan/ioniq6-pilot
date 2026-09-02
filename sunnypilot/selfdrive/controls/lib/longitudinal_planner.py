@@ -14,6 +14,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.e2e_alerts_helper import E2EAle
 from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.smart_cruise_control import SmartCruiseControl
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist import SpeedLimitAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_resolver import SpeedLimitResolver
+from openpilot.sunnypilot.selfdrive.controls.lib.weather_adaptive import WeatherAdaptive
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 
@@ -32,6 +33,11 @@ class LongitudinalPlannerSP:
     self.generation = int(model_bundle.generation) if (model_bundle := get_active_bundle()) else None
     self.source = LongitudinalPlanSource.cruise
     self.e2e_alerts_helper = E2EAlertsHelper()
+
+    # Weather-adaptive longitudinal offsets (see weather_adaptive.py); neutral unless configured on-device
+    self.weather = WeatherAdaptive()
+    self._weather_mpc = mpc
+    self.weather_accel_factor = 1.0
 
     self.output_v_target = 0.
     self.output_a_target = 0.
@@ -77,6 +83,11 @@ class LongitudinalPlannerSP:
     self.events_sp.clear()
     self.dec.update(sm)
     self.e2e_alerts_helper.update(sm, self.events_sp)
+
+    self.weather.update(sm, sm['carState'].vEgo)
+    self._weather_mpc.weather_t_follow_offset = self.weather.t_follow_offset
+    self._weather_mpc.weather_stop_distance_offset = self.weather.stop_distance_offset_m
+    self.weather_accel_factor = self.weather.accel_factor
 
   def publish_longitudinal_plan_sp(self, sm: messaging.SubMaster, pm: messaging.PubMaster) -> None:
     plan_sp_send = messaging.new_message('longitudinalPlanSP')
