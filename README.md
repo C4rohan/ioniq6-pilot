@@ -37,6 +37,25 @@ No URL needed; the device tracks the branch.
 
 - Dedicated NNLC (Neural Network Lateral Control) model for the Ioniq 6, shared with the E-GMP platform Ioniq 5.
 - Lateral torque tuning aligned to the Ioniq 5 measured fit.
+- **Weather-adaptive driving** (adapted from FrogPilot, MIT): in rain, storms, snow, or low visibility it increases following time, increases the stopped gap behind a lead, and reduces maximum acceleration. It is only ever more conservative, and it is neutral (stock behaviour) when disabled, offline, or on any error. Longitudinal only for now.
+
+### Enabling weather-adaptive driving
+
+It is **off by default** and needs a free [OpenWeatherMap](https://openweathermap.org/api) API key, which stays on the device and never goes in this repo.
+
+1. SSH into the comma 3X.
+2. Copy the template and add your key:
+
+   ```
+   cp /data/openpilot/sunnypilot/selfdrive/controls/lib/weather_adaptive.example.json /data/sunnypilot_weather.json
+   nano /data/sunnypilot_weather.json    # set "owm_api_key"; keep "enabled": true
+   ```
+
+3. Reboot (or restart openpilot). You can tune the per-condition offsets in that file at any time; changes are picked up within seconds.
+
+To see what it is doing: `cat /data/sunnypilot_weather_status.json` (current condition, last fetch, applied offsets, last error).
+
+Defaults, as *seconds added to following time / feet added to stopped gap / % max-acceleration reduction*: rain 0.3 / 3 / 15 · storm 0.5 / 5 / 30 · snow 0.7 / 8 / 40 · low visibility 0.4 / 4 / 20. These are conservative starting points, not field-tested values — adjust to taste.
 
 ## User data
 
