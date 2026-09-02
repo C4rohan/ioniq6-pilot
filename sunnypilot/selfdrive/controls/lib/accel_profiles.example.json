@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to /data/sunnypilot_accel.json. profile = eco | normal | sport.",
+  "enabled": true,
+  "profile": "sport"
+}

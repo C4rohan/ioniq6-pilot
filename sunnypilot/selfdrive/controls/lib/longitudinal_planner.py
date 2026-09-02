@@ -15,6 +15,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.smart_cruise_control.smart_crui
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_assist import SpeedLimitAssist
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.speed_limit_resolver import SpeedLimitResolver
 from openpilot.sunnypilot.selfdrive.controls.lib.weather_adaptive import WeatherAdaptive
+from openpilot.sunnypilot.selfdrive.controls.lib.accel_profiles import AccelProfiles
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
 from openpilot.sunnypilot.models.helpers import get_active_bundle
 
@@ -38,6 +39,10 @@ class LongitudinalPlannerSP:
     self.weather = WeatherAdaptive()
     self._weather_mpc = mpc
     self.weather_accel_factor = 1.0
+
+    # Eco/Normal/Sport acceleration profiles (see accel_profiles.py); 1.0 unless configured on-device
+    self.accel_profiles = AccelProfiles()
+    self.accel_profile_factor = 1.0
 
     self.output_v_target = 0.
     self.output_a_target = 0.
@@ -88,6 +93,7 @@ class LongitudinalPlannerSP:
     self._weather_mpc.weather_t_follow_offset = self.weather.t_follow_offset
     self._weather_mpc.weather_stop_distance_offset = self.weather.stop_distance_offset_m
     self.weather_accel_factor = self.weather.accel_factor
+    self.accel_profile_factor = self.accel_profiles.update(sm['carState'].vEgo)
 
   def publish_longitudinal_plan_sp(self, sm: messaging.SubMaster, pm: messaging.PubMaster) -> None:
     plan_sp_send = messaging.new_message('longitudinalPlanSP')
