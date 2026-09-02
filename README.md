@@ -37,7 +37,9 @@ No URL needed; the device tracks the branch.
 
 - Dedicated NNLC (Neural Network Lateral Control) model for the Ioniq 6, shared with the E-GMP platform Ioniq 5.
 - Lateral torque tuning aligned to the Ioniq 5 measured fit.
-- **Weather-adaptive driving** (adapted from FrogPilot, MIT): in rain, storms, snow, or low visibility it increases following time, increases the stopped gap behind a lead, and reduces maximum acceleration. It is only ever more conservative, and it is neutral (stock behaviour) when disabled, offline, or on any error. Longitudinal only for now.
+- **Weather-adaptive driving** (adapted from FrogPilot, MIT): in rain, storms, snow, or low visibility it increases following time, increases the stopped gap behind a lead, reduces maximum acceleration, and slows more for curves. Only ever more conservative; neutral (stock) when disabled, offline, or on any error.
+- **Acceleration profiles** (Eco / Normal / Sport, adapted from FrogPilot, MIT): scales how briskly it accelerates to the set speed. Never touches braking, following distance, or any safety limit; hard-capped at 2.5 m/s². Off by default (Normal).
+- **On-device settings server**: a small web page to edit the config files below from a phone browser on the car's network, instead of SSH. Off by default (not registered as a process) — see below.
 
 ### Enabling weather-adaptive driving
 
@@ -55,7 +57,32 @@ It is **off by default** and needs a free [OpenWeatherMap](https://openweatherma
 
 To see what it is doing: `cat /data/sunnypilot_weather_status.json` (current condition, last fetch, applied offsets, last error).
 
-Defaults, as *seconds added to following time / feet added to stopped gap / % max-acceleration reduction*: rain 0.3 / 3 / 15 · storm 0.5 / 5 / 30 · snow 0.7 / 8 / 40 · low visibility 0.4 / 4 / 20. These are conservative starting points, not field-tested values — adjust to taste.
+Defaults, as *sec added to following / feet added to stopped gap / % max-accel reduction / % curve-speed reduction*: rain 0.3 / 3 / 15 / 10 · storm 0.5 / 5 / 30 / 20 · snow 0.7 / 8 / 40 / 30 · low visibility 0.4 / 4 / 20 / 15. These are conservative starting points, not field-tested values — adjust to taste.
+
+### Enabling acceleration profiles
+
+```
+cp /data/openpilot/sunnypilot/selfdrive/controls/lib/accel_profiles.example.json /data/sunnypilot_accel.json
+nano /data/sunnypilot_accel.json    # "enabled": true, "profile": "eco" | "normal" | "sport"
+```
+
+Applied within seconds; no reboot needed. Sport is capped so it stays comfortable.
+
+### Enabling the on-device settings server
+
+The server **code** ships on the branch but is **not** auto-started — running an always-on, network-listening process on the car is a change you should make deliberately. To turn it on, add one line to the sunnypilot process block in `system/manager/process_config.py`:
+
+```python
+# sunnypilot
+procs += [
+  PythonProcess("sunnypilot_settings_server", "sunnypilot.selfdrive.settings_server.settings_server", always_run),
+  # Models
+  ...
+```
+
+Reboot, then browse to `http://<device-ip>:8088` from a phone on the same network. It edits the weather and accel configs and shows the live weather status.
+
+> ⚠️ **No login.** Anyone on the same network can change these settings. Only enable it on a network you trust (your car hotspot / home WiFi), and remove the line to disable it. Because this edits `process_config.py`, it will need re-applying (or resolving in the weekly rebase) after updates.
 
 ## User data
 
