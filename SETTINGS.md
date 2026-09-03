@@ -38,6 +38,24 @@ Get a free key at <https://openweathermap.org/api>. The key stays on the device.
 briskly it accelerates to the set speed — never braking, following distance, or
 any safety limit. Hard-capped at 2.5 m/s².
 
+## Connectivity — reaching the phone page and getting weather
+
+You configure settings **parked**, never while driving. The phone and the comma
+3X just need to be on the same network:
+
+- **Phone hotspot (recommended):** turn on your phone's personal hotspot and, in
+  the device's Settings -> Network, connect the 3X to it (one-time). The device
+  then has internet (weather fetches while you drive) and your phone can open
+  `http://<device-ip>:8088` (the device shows its IP in Settings -> Network).
+- **Device hotspot:** the 3X can broadcast its own WiFi (Settings -> Network ->
+  Tethering). Your phone joins it and browses to the device IP — but there is no
+  internet in this mode unless the device has a comma LTE SIM, so weather stays
+  neutral.
+
+Weather needs internet only to fetch the forecast, and it caches for ~3 hours, so
+brief dead zones don't drop the offsets. The accel profile needs no internet at
+all. Without a comma LTE SIM, run the 3X on your phone's hotspot.
+
 ## Editing settings
 
 - **From your phone** (if the settings server is enabled): browse to
