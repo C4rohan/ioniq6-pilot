@@ -4,7 +4,7 @@
   "owm_api_key": "PASTE_YOUR_OPENWEATHERMAP_KEY_HERE",
   "refresh_s": 300,
   "offsets": {
-    "_units": "follow_s=sec added to following; stop_ft=feet added to stopped gap; accel_pct=% max-accel reduction; lat_pct=% curve-speed reduction",
+    "_units": "follow_s=sec added to following; stop_ft=feet added to stopped gap; accel_pct=% max-accel reduction; lat_pct=% curve-speed reduction; night = applied after sunset when weather is clear (night_enabled)",
     "rain": {
       "follow_s": 0.3,
       "stop_ft": 3,
@@ -28,6 +28,13 @@
       "stop_ft": 4,
       "accel_pct": 20,
       "lat_pct": 15
+    },
+    "night": {
+      "follow_s": 0.2,
+      "stop_ft": 2,
+      "accel_pct": 10,
+      "lat_pct": 5
     }
-  }
+  },
+  "night_enabled": true
 }

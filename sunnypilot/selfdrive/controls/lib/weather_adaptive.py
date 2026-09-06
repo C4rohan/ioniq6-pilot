@@ -74,11 +74,14 @@ DEFAULT_CONFIG = {
   "enabled": False,
   "owm_api_key": "",
   "refresh_s": DEFAULT_REFRESH,
+  "night_enabled": False,
   "offsets": {
     "rain": {"follow_s": 0.3, "stop_ft": 3, "accel_pct": 15, "lat_pct": 10},
     "rain_storm": {"follow_s": 0.5, "stop_ft": 5, "accel_pct": 30, "lat_pct": 20},
     "snow": {"follow_s": 0.7, "stop_ft": 8, "accel_pct": 40, "lat_pct": 30},
     "low_visibility": {"follow_s": 0.4, "stop_ft": 4, "accel_pct": 20, "lat_pct": 15},
+    # applied after sunset / before sunrise when the weather is otherwise clear
+    "night": {"follow_s": 0.2, "stop_ft": 2, "accel_pct": 10, "lat_pct": 5},
   },
 }
 
@@ -102,7 +105,7 @@ def merge_config(user) -> dict:
   cfg = json.loads(json.dumps(DEFAULT_CONFIG))  # deep copy of the defaults
   if not isinstance(user, dict):
     return cfg
-  for k in ("enabled", "owm_api_key", "refresh_s"):
+  for k in ("enabled", "owm_api_key", "refresh_s", "night_enabled"):
     if k in user:
       cfg[k] = user[k]
   for name, vals in (user.get("offsets") or {}).items():
@@ -145,6 +148,8 @@ class WeatherAdaptive:
     self.last_position = None
     self.last_error = ""
     self.requesting = False
+    self.sunrise = 0.0   # unix, from OWM for the fetched location
+    self.sunset = 0.0
 
     self.t_follow_offset = 0.0
     self.stop_distance_offset_m = 0.0
@@ -208,6 +213,9 @@ class WeatherAdaptive:
         self.weather_id = int((data.get("weather") or [{}])[0].get("id", 0) or 0)
         self.category = category_for_id(self.weather_id)
         self.location_name = str(data.get("name", ""))
+        sysd = data.get("sys") or {}
+        self.sunrise = float(sysd.get("sunrise") or 0.0)
+        self.sunset = float(sysd.get("sunset") or 0.0)
         self.last_fetch_mono = started_mono
         self.last_fetch_wall = time.time()
         self.last_position = position
@@ -216,6 +224,9 @@ class WeatherAdaptive:
       else:
         cloudlog.warning(f"weather_adaptive: fetch failed: {err}")
     self._write_status()
+
+  def is_night(self, wall: float) -> bool:
+    return self.sunrise > 0 and self.sunset > 0 and not (self.sunrise <= wall <= self.sunset)
 
   def _maybe_fetch(self, sm, now: float) -> None:
     if self.requesting:
@@ -247,6 +258,8 @@ class WeatherAdaptive:
       st = {
         "active": self.active,
         "condition": self.category or "clear",
+        "is_night": self.is_night(time.time()),
+        "night_mode": bool(self.cfg.get("night_enabled")),
         "weather_id": self.weather_id,
         "location": self.location_name,
         "last_fetch_unix": round(self.last_fetch_wall) if self.last_fetch_wall else None,
@@ -284,6 +297,8 @@ class WeatherAdaptive:
         stale = bool(self.last_fetch_mono) and (now - self.last_fetch_mono) > STALE_WEATHER_AGE
       if stale:
         category = None
+      elif category is None and self.cfg.get("night_enabled") and self.is_night(time.time()):
+        category = "night"
       self.t_follow_offset, self.stop_distance_offset_m, self.accel_factor, self.lat_accel_factor = \
         offsets_for(self.cfg, category, v_ego)
 

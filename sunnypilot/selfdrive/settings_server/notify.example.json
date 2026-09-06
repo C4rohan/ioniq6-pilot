@@ -1,0 +1,10 @@
+{
+  "_comment": "Copy to /data/sunnypilot_notify.json. type = telegram | webhook. Secrets stay on the device.",
+  "enabled": true,
+  "type": "telegram",
+  "bot_token": "PASTE_TELEGRAM_BOT_TOKEN",
+  "chat_id": "PASTE_CHAT_ID",
+  "webhook_url": "",
+  "notify_trips": true,
+  "notify_zones": false
+}
