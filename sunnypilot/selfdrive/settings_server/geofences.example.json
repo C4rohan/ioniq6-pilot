@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to /data/sunnypilot_geofences.json. Inside a zone the accel profile switches; leaving restores default_accel_profile.",
+  "enabled": true,
+  "default_accel_profile": "normal",
+  "zones": [
+    {"name": "Home",    "lat": 0.0, "lon": 0.0, "radius_m": 300, "accel_profile": "eco"},
+    {"name": "Highway", "lat": 0.0, "lon": 0.0, "radius_m": 500, "accel_profile": "sport"}
+  ]
+}
