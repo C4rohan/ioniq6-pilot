@@ -1,90 +1,71 @@
-# openpilot — Ioniq 6 custom build
+<div align="center">
 
-A personal build of openpilot for a **Hyundai Ioniq 6 (2023–24, non-HDA-II / Highway Driving Assist)** running on a **comma 3X**.
+# 🚗 openpilot — Ioniq 6 custom build
 
-Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6–specific tuning.
+**A personal, weather-aware, phone-managed build of openpilot for the Hyundai Ioniq 6 on a comma 3X.**
 
-## Install on the comma 3X
+![Car](https://img.shields.io/badge/car-Hyundai%20Ioniq%206%20%282023%E2%80%9324%2C%20non--HDA--II%29-2f6feb?style=flat-square)
+![Device](https://img.shields.io/badge/device-comma%203X-111827?style=flat-square)
+![Base](https://img.shields.io/badge/base-sunnypilot%20release--tizi-f59e0b?style=flat-square)
+![Updates](https://img.shields.io/badge/updates-auto--rebased%20weekly-10b981?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-8b5cf6?style=flat-square)
 
-**Prerequisites:** comma 3X mounted, the Hyundai **"L" harness** (CAN-FD, non-HDA-II), and a WiFi connection.
+`installer.comma.ai/C4rohan/ioniq6-tizi-custom`
 
-### Already running this branch → just update
+</div>
 
-No URL needed; the device tracks the branch.
+---
 
-1. Car on, device booted and on **WiFi**.
-2. **Settings → Software → Check for Update → Download**, then **Install / Reboot**.
-3. Your on-device toggles carry over. (It also self-updates overnight on WiFi with the car off.)
+Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) and layers Ioniq 6–specific tuning plus a set of features you won't find in stock sunnypilot. Everything custom is **off by default**, **configured from your phone**, and **fails safe to stock**.
 
-### Fresh install → enter the Custom Software URL
+## ✨ Unique features
 
-1. If openpilot/sunnypilot is already installed: **Settings → Uninstall**, confirm, and let it reboot into the setup wizard. (A fresh 3X boots straight into the wizard.)
-2. Wizard: pick language → connect to **WiFi**.
-3. Choose **Custom Software** (not "openpilot").
-4. Enter exactly:
+| | Feature | What it does |
+|---|---|---|
+| 🌧️ | **Weather-adaptive driving** | Rain, storm, snow, or fog → more following distance, a bigger stopped gap, softer acceleration, and slower curves. Only ever more conservative. |
+| 🌙 | **Night mode** | After sunset (from the same weather lookup) it drives a touch more carefully when the weather is otherwise clear. |
+| ⚡ | **Eco / Normal / Sport** | Choose how briskly it accelerates to the set speed. Braking and gaps untouched; hard-capped for safety. |
+| 📍 | **Geofences** | Auto-switch the accel profile by location — Eco near home, Sport on your highway — no taps needed. |
+| 📊 | **Live dashboard** | Speed, engagement, weather mode, model, and trip stats on your phone in real time. |
+| 🧾 | **Trip & disengagement logs** | Every drive and every disengagement, with context (speed, pedals, weather), so tuning is data-driven. |
+| 💬 | **Notifications** | Drive summaries to Telegram or any webhook the moment you park. |
+| 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder. |
+| 📱 | **Phone settings page** | Edit every setting from a browser on the car's network. No SSH after setup. |
 
+Plus everything sunnypilot gives you: MADS / Always-on Lateral, NNLC, Auto Lane Change, Smart Cruise Control (vision + map curve speed), Speed Limit Assist, Dynamic Experimental Control, and the driving-model selector.
+
+## 🚀 Quick start
+
+**Prerequisites:** comma 3X, the Hyundai **"L" harness** (CAN-FD, non-HDA-II), WiFi.
+
+1. **Install** — on the device choose *Custom Software* and enter `installer.comma.ai/C4rohan/ioniq6-tizi-custom`. (Already on the branch? *Settings → Software → Check for Update*.)
+2. **Enable the phone page** — one-time SSH:
    ```
-   installer.comma.ai/C4rohan/ioniq6-tizi-custom
+   bash install_settings.sh
    ```
+   It drops the config files into `/data`, enables the settings server on **:8088**, and reboots.
+3. **Open the dashboard** — put the 3X on your phone's hotspot, then browse to `http://<device-ip>:8088`. Paste your free [OpenWeatherMap](https://openweathermap.org/api) key under *weather* and you're live.
+4. **Toggle the sunnypilot basics** on the device: **MADS**, **NNLC**, **Auto Lane Change**.
 
-5. Let it download, install, and reboot; then pair via [comma connect](https://connect.comma.ai/).
-6. Plug into the car with the **Hyundai "L" harness** and let it fingerprint the Ioniq 6.
-7. Enable your toggles: **MADS / Always-on Lateral**, **NNLC**, **Auto Lane Change**.
+> ⚠️ Treat the first drive after any install, update, or setting change as a **shakedown** — empty road, hands ready. Enable one feature at a time.
 
-> ⚠️ First drive after any install/update: treat it as a shakedown — empty road, hands ready — especially as this build carries a custom steering-torque tune.
+## 🛡️ How it stays safe
 
-## What's customized
+- Every custom hook is a `getattr(..., neutral)` — the code path is **inert unless configured**.
+- Weather/night features can only make driving **more** conservative; Sport is the single assertive setting and it's capped.
+- Hard clamps: extra following ≤ +1.5 s · extra stopped gap ≤ 5 m · min accel 30% · min curve speed 60% · abs max accel 2.5 m/s².
+- Offline, stale (> 3 h), disabled, or any error → **identical to stock**.
+- Telemetry, geofences, and notifications **never touch control** — they only read state and write files/webhooks.
+- Secrets (API keys, tokens) live only on the device and are masked on the phone page.
 
-- Dedicated NNLC (Neural Network Lateral Control) model for the Ioniq 6, shared with the E-GMP platform Ioniq 5.
-- Lateral torque tuning aligned to the Ioniq 5 measured fit.
-- **Weather-adaptive driving** (adapted from FrogPilot, MIT): in rain, storms, snow, or low visibility it increases following time, increases the stopped gap behind a lead, reduces maximum acceleration, and slows more for curves. Only ever more conservative; neutral (stock) when disabled, offline, or on any error.
-- **Acceleration profiles** (Eco / Normal / Sport, adapted from FrogPilot, MIT): scales how briskly it accelerates to the set speed. Never touches braking, following distance, or any safety limit; hard-capped at 2.5 m/s². Off by default (Normal).
-- **On-device settings server**: a small web page to edit the config files below from a phone browser on the car's network, instead of SSH. Off by default (not registered as a process) — see below.
+## 📚 Docs
 
-See **[SETTINGS.md](SETTINGS.md)** for the full settings guideline (fields, safe ranges, and how to enable/test safely).
+- **[FEATURES.md](FEATURES.md)** — full inventory, defaults, and what's deliberately not included
+- **[SETTINGS.md](SETTINGS.md)** — every config file, field, safe range, and the enable/test guideline
 
-### Enabling weather-adaptive driving
+## 🔄 Updates
 
-It is **off by default** and needs a free [OpenWeatherMap](https://openweathermap.org/api) API key, which stays on the device and never goes in this repo.
-
-1. SSH into the comma 3X.
-2. Copy the template and add your key:
-
-   ```
-   cp /data/openpilot/sunnypilot/selfdrive/controls/lib/weather_adaptive.example.json /data/sunnypilot_weather.json
-   nano /data/sunnypilot_weather.json    # set "owm_api_key"; keep "enabled": true
-   ```
-
-3. Reboot (or restart openpilot). You can tune the per-condition offsets in that file at any time; changes are picked up within seconds.
-
-To see what it is doing: `cat /data/sunnypilot_weather_status.json` (current condition, last fetch, applied offsets, last error).
-
-Defaults, as *sec added to following / feet added to stopped gap / % max-accel reduction / % curve-speed reduction*: rain 0.3 / 3 / 15 / 10 · storm 0.5 / 5 / 30 / 20 · snow 0.7 / 8 / 40 / 30 · low visibility 0.4 / 4 / 20 / 15. These are conservative starting points, not field-tested values — adjust to taste.
-
-### Enabling acceleration profiles
-
-```
-cp /data/openpilot/sunnypilot/selfdrive/controls/lib/accel_profiles.example.json /data/sunnypilot_accel.json
-nano /data/sunnypilot_accel.json    # "enabled": true, "profile": "eco" | "normal" | "sport"
-```
-
-Applied within seconds; no reboot needed. Sport is capped so it stays comfortable.
-
-### Enabling the on-device settings server
-
-The server **code** ships on the branch but is **not** auto-started — running an always-on, network-listening process on the car is a change you should make deliberately. To turn it on, add one line to the sunnypilot process block in `system/manager/process_config.py`:
-
-```python
-# sunnypilot
-procs += [
-  PythonProcess("sunnypilot_settings_server", "sunnypilot.selfdrive.settings_server.settings_server", always_run),
-  # Models
-  ...
-```
-
-Reboot, then browse to `http://<device-ip>:8088` from a phone on the same network. It edits the weather and accel configs and shows the live weather status.
-
-> ⚠️ **No login.** Anyone on the same network can change these settings. Only enable it on a network you trust (your car hotspot / home WiFi), and remove the line to disable it. Because this edits `process_config.py`, it will need re-applying (or resolving in the weekly rebase) after updates.
+A weekly job rebases this branch onto the newest sunnypilot `release-tizi` and replays every patch; it fails safe (aborts and notifies) on conflict. After a bump, **reinstall on the device**; your `/data` settings are preserved.
 
 ## User data
 
@@ -92,7 +73,7 @@ By default openpilot uploads driving data to comma's servers; you can view it vi
 
 ## Licensing
 
-Released under the [MIT License](LICENSE). This repository contains significant portions of code derived from [openpilot by comma.ai](https://github.com/commaai/openpilot), released under the MIT license with additional disclaimers, reproduced below as required:
+Released under the [MIT License](LICENSE). This repository contains significant portions of code derived from [openpilot by comma.ai](https://github.com/commaai/openpilot), released under the MIT license with additional disclaimers, reproduced below as required. Weather presets, acceleration profiles, and remote settings were adapted from [FrogPilot](https://github.com/FrogAi/FrogPilot) (MIT).
 
 > openpilot is released under the MIT license. Some parts of the software are released under other licenses as specified.
 >
