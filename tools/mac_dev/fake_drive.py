@@ -38,10 +38,21 @@ def nv12_frame() -> bytes:
 def sset(obj, **kv):
   """Set fields that exist in this cereal version; skip the rest (schemas move)."""
   for k, v in kv.items():
+    if v is None:
+      continue
     try:
       setattr(obj, k, v)
     except Exception:
       pass
+
+
+def enum(mod, *names):
+  """First enum member that exists, else None."""
+  for n in names:
+    v = getattr(mod, n, None)
+    if v is not None:
+      return v
+  return None
 
 
 def xyzt(obj, x, y, z):
@@ -83,12 +94,11 @@ def main():
     cs = messaging.new_message("carState"); s = cs.carState
     s.vEgo = v; s.vEgoCluster = v; s.aEgo = 0.0; s.standstill = v < 0.1
     s.steeringAngleDeg = math.degrees(curv * 2.97 * 14.26); sset(s, vCruise=a.kph, vCruiseCluster=a.kph)
-    sset(s.cruiseState, enabled=True, available=True, speed=v_set); sset(s, gearShifter=car.CarState.GearShifter.drive); pm.send("carState", cs)
+    sset(s.cruiseState, enabled=True, available=True, speed=v_set); sset(s, gearShifter=enum(car.CarState.GearShifter, "drive")); pm.send("carState", cs)
 
     ss = messaging.new_message("selfdriveState"); d = ss.selfdriveState
     d.enabled = engaged; d.active = engaged
-    d.state = log.SelfdriveState.OpenpilotState.enabled if engaged else log.SelfdriveState.OpenpilotState.disabled
-    d.personality = log.LongitudinalPersonality.standard; pm.send("selfdriveState", ss)
+    sset(d, state=enum(log.SelfdriveState.OpenpilotState, "enabled" if engaged else "disabled"), personality=enum(log.LongitudinalPersonality, "standard")); pm.send("selfdriveState", ss)
 
     cc = messaging.new_message("controlsState"); cc.controlsState.curvature = curv; cc.controlsState.desiredCurvature = curv; pm.send("controlsState", cc)
 
@@ -111,12 +121,12 @@ def main():
 
     if fid % 5 == 0:   # 4 Hz group
       ds = messaging.new_message("deviceState"); ds.deviceState.started = True; ds.deviceState.freeSpacePercent = 60; ds.deviceState.memoryUsagePercent = 30
-      sset(ds.deviceState, screenBrightnessPercent=100, thermalStatus=log.DeviceState.ThermalStatus.green, networkType=log.DeviceState.NetworkType.wifi); pm.send("deviceState", ds)
+      sset(ds.deviceState, screenBrightnessPercent=100, thermalStatus=enum(log.DeviceState.ThermalStatus, "green"), networkType=enum(log.DeviceState.NetworkType, "wifi")); pm.send("deviceState", ds)
       ps = messaging.new_message("pandaStates", 1); p = ps.pandaStates[0]; sset(p, ignitionLine=True, controlsAllowed=engaged)
-      p.pandaType = getattr(log.PandaState.PandaType, "tres", log.PandaState.PandaType.uno); pm.send("pandaStates", ps)
+      sset(p, pandaType=enum(log.PandaState.PandaType, "tres", "uno")); pm.send("pandaStates", ps)
       cp = messaging.new_message("carParams"); c = cp.carParams; sset(c, carName="HYUNDAI_IONIQ_6", carFingerprint="HYUNDAI_IONIQ_6")
-      sset(c, brand="hyundai", openpilotLongitudinalControl=True, steerControlType=car.CarParams.SteerControlType.torque, steerRatio=14.26, wheelbase=2.97); pm.send("carParams", cp)
-      lc = messaging.new_message("liveCalibration"); l = lc.liveCalibration; l.calStatus = log.LiveCalibrationData.Status.calibrated; l.calPerc = 100
+      sset(c, brand="hyundai", openpilotLongitudinalControl=True, steerControlType=enum(car.CarParams.SteerControlType, "torque"), steerRatio=14.26, wheelbase=2.97); pm.send("carParams", cp)
+      lc = messaging.new_message("liveCalibration"); l = lc.liveCalibration; sset(l, calStatus=enum(log.LiveCalibrationData.Status, "calibrated"), calPerc=100)
       l.rpyCalib = [0.0, 0.0, 0.0]; sset(l, height=[1.22], validBlocks=20); pm.send("liveCalibration", lc)
       lpar = messaging.new_message("liveParameters"); sset(lpar.liveParameters, angleOffsetDeg=0.0, valid=True); pm.send("liveParameters", lpar)
       g = messaging.new_message("gpsLocationExternal"); g.gpsLocationExternal.hasFix = True; g.gpsLocationExternal.latitude = 40.7128; g.gpsLocationExternal.longitude = -74.0060
