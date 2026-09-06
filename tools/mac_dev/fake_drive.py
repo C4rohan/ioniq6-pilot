@@ -35,6 +35,15 @@ def nv12_frame() -> bytes:
   return np.concatenate([y.ravel(), uv.ravel()]).tobytes()
 
 
+def sset(obj, **kv):
+  """Set fields that exist in this cereal version; skip the rest (schemas move)."""
+  for k, v in kv.items():
+    try:
+      setattr(obj, k, v)
+    except Exception:
+      pass
+
+
 def xyzt(obj, x, y, z):
   obj.x, obj.y, obj.z, obj.t = [float(v) for v in x], [float(v) for v in y], [float(v) for v in z], [float(v) for v in T]
 
@@ -73,9 +82,8 @@ def main():
 
     cs = messaging.new_message("carState"); s = cs.carState
     s.vEgo = v; s.vEgoCluster = v; s.aEgo = 0.0; s.standstill = v < 0.1
-    s.steeringAngleDeg = math.degrees(curv * 2.97 * 14.26); s.vCruise = a.kph; s.vCruiseCluster = a.kph
-    s.cruiseState.enabled = True; s.cruiseState.available = True; s.cruiseState.speed = v_set
-    s.gearShifter = car.CarState.GearShifter.drive; pm.send("carState", cs)
+    s.steeringAngleDeg = math.degrees(curv * 2.97 * 14.26); sset(s, vCruise=a.kph, vCruiseCluster=a.kph)
+    sset(s.cruiseState, enabled=True, available=True, speed=v_set); sset(s, gearShifter=car.CarState.GearShifter.drive); pm.send("carState", cs)
 
     ss = messaging.new_message("selfdriveState"); d = ss.selfdriveState
     d.enabled = engaged; d.active = engaged
@@ -89,28 +97,28 @@ def main():
     xyzt(m2.position, X, yv, np.zeros(N)); xyzt(m2.velocity, np.full(N, v), np.zeros(N), np.zeros(N)); xyzt(m2.orientation, np.zeros(N), np.zeros(N), np.zeros(N))
     ll = m2.init("laneLines", 4)
     for i, off in enumerate((-3.6, -1.8, 1.8, 3.6)): xyzt(ll[i], X, yv + off, np.zeros(N))
-    m2.laneLineProbs = [1.0, 1.0, 1.0, 1.0]
+    sset(m2, laneLineProbs=[1.0, 1.0, 1.0, 1.0])
     re = m2.init("roadEdges", 2)
     for i, off in enumerate((-5.4, 5.4)): xyzt(re[i], X, yv + off, np.zeros(N))
     m2.frameId = fid; pm.send("modelV2", md)
 
-    lp = messaging.new_message("longitudinalPlan"); lp.longitudinalPlan.speeds = [float(v)] * N; lp.longitudinalPlan.accels = [0.0] * N; lp.longitudinalPlan.jerks = [0.0] * N; pm.send("longitudinalPlan", lp)
+    lp = messaging.new_message("longitudinalPlan"); sset(lp.longitudinalPlan, speeds=[float(v)] * N, accels=[0.0] * N, jerks=[0.0] * N); pm.send("longitudinalPlan", lp)
     rs = messaging.new_message("radarState"); rs.radarState.leadOne.status = False; pm.send("radarState", rs)
-    dm = messaging.new_message("driverMonitoringState"); dm.driverMonitoringState.faceDetected = True; dm.driverMonitoringState.isActiveMode = True; dm.driverMonitoringState.awarenessStatus = 1.0; pm.send("driverMonitoringState", dm)
+    dm = messaging.new_message("driverMonitoringState"); sset(dm.driverMonitoringState, faceDetected=True, isActiveMode=True, awarenessStatus=1.0, isDistracted=False); pm.send("driverMonitoringState", dm)
     oe = messaging.new_message("onroadEvents", 0); pm.send("onroadEvents", oe)
-    ccm = messaging.new_message("carControl"); ccm.carControl.enabled = engaged; ccm.carControl.latActive = engaged; ccm.carControl.longActive = engaged; pm.send("carControl", ccm)
+    ccm = messaging.new_message("carControl"); sset(ccm.carControl, enabled=engaged, latActive=engaged, longActive=engaged); pm.send("carControl", ccm)
     co = messaging.new_message("carOutput"); pm.send("carOutput", co)
 
     if fid % 5 == 0:   # 4 Hz group
       ds = messaging.new_message("deviceState"); ds.deviceState.started = True; ds.deviceState.freeSpacePercent = 60; ds.deviceState.memoryUsagePercent = 30
-      ds.deviceState.screenBrightnessPercent = 100; ds.deviceState.thermalStatus = log.DeviceState.ThermalStatus.green; ds.deviceState.networkType = log.DeviceState.NetworkType.wifi; pm.send("deviceState", ds)
-      ps = messaging.new_message("pandaStates", 1); p = ps.pandaStates[0]; p.ignitionLine = True; p.controlsAllowed = engaged
+      sset(ds.deviceState, screenBrightnessPercent=100, thermalStatus=log.DeviceState.ThermalStatus.green, networkType=log.DeviceState.NetworkType.wifi); pm.send("deviceState", ds)
+      ps = messaging.new_message("pandaStates", 1); p = ps.pandaStates[0]; sset(p, ignitionLine=True, controlsAllowed=engaged)
       p.pandaType = getattr(log.PandaState.PandaType, "tres", log.PandaState.PandaType.uno); pm.send("pandaStates", ps)
-      cp = messaging.new_message("carParams"); c = cp.carParams; c.carName = "HYUNDAI_IONIQ_6"; c.carFingerprint = "HYUNDAI_IONIQ_6"; c.brand = "hyundai"
-      c.openpilotLongitudinalControl = True; c.steerControlType = car.CarParams.SteerControlType.torque; c.steerRatio = 14.26; c.wheelbase = 2.97; pm.send("carParams", cp)
+      cp = messaging.new_message("carParams"); c = cp.carParams; sset(c, carName="HYUNDAI_IONIQ_6", carFingerprint="HYUNDAI_IONIQ_6")
+      sset(c, brand="hyundai", openpilotLongitudinalControl=True, steerControlType=car.CarParams.SteerControlType.torque, steerRatio=14.26, wheelbase=2.97); pm.send("carParams", cp)
       lc = messaging.new_message("liveCalibration"); l = lc.liveCalibration; l.calStatus = log.LiveCalibrationData.Status.calibrated; l.calPerc = 100
-      l.rpyCalib = [0.0, 0.0, 0.0]; l.height = [1.22]; l.validBlocks = 20; pm.send("liveCalibration", lc)
-      lpar = messaging.new_message("liveParameters"); lpar.liveParameters.angleOffsetDeg = 0.0; lpar.liveParameters.valid = True; pm.send("liveParameters", lpar)
+      l.rpyCalib = [0.0, 0.0, 0.0]; sset(l, height=[1.22], validBlocks=20); pm.send("liveCalibration", lc)
+      lpar = messaging.new_message("liveParameters"); sset(lpar.liveParameters, angleOffsetDeg=0.0, valid=True); pm.send("liveParameters", lpar)
       g = messaging.new_message("gpsLocationExternal"); g.gpsLocationExternal.hasFix = True; g.gpsLocationExternal.latitude = 40.7128; g.gpsLocationExternal.longitude = -74.0060
       g.gpsLocationExternal.unixTimestampMillis = int(time.time() * 1000); pm.send("gpsLocationExternal", g)
     rk.keep_time()
