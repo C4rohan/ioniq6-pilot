@@ -1,0 +1,268 @@
+<title>Ioniq 6 HUD Workbench</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#F3F5F8; --panel:#FFFFFF; --line:#D8DEE8; --ink:#1B2330; --mute:#5C6779;
+    --accent:#1FAE86; --accent-ink:#0E6B52; --night:#5A6BF0; --weather:#C98A0C;
+    --warn:#DA6F25; --crit:#C92231; --focus:#1FAE86;
+    --font-ui:"Manrope",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    --font-hud:"Inter",ui-sans-serif,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+    --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E1116; --panel:#151A22; --line:#273040; --ink:#E6EAF0; --mute:#97A2B6;
+      --accent:#2FD3A1; --accent-ink:#2FD3A1; --night:#8A97FF; --weather:#F5B841;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E1116; --panel:#151A22; --line:#273040; --ink:#E6EAF0; --mute:#97A2B6;
+    --accent:#2FD3A1; --accent-ink:#2FD3A1; --night:#8A97FF; --weather:#F5B841;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:14px;line-height:1.5}
+  a{color:var(--accent-ink)}
+  .wrap{max-width:1240px;margin:0 auto;padding:24px 20px 48px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  h1{font-size:26px;font-weight:800;letter-spacing:-.01em;margin:0;text-wrap:balance}
+  .sub{color:var(--mute);margin:4px 0 0;max-width:62ch}
+  .eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);font-weight:700;margin:0 0 6px}
+  .switch{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:var(--panel)}
+  .switch button{border:0;background:transparent;color:var(--mute);font:700 13px var(--font-ui);padding:7px 14px;border-radius:999px;cursor:pointer}
+  .switch button[aria-pressed="true"]{background:var(--accent);color:#06261B}
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:18px;align-items:start}
+  @media (max-width:980px){.grid{grid-template-columns:1fr}}
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+  .stage-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:var(--mute);font-family:var(--font-mono);font-size:12px}
+  .device{position:relative;width:100%;aspect-ratio:2/1;overflow:hidden;border-radius:10px;background:#000}
+  #screen{position:absolute;left:0;top:0;width:2160px;height:1080px;transform-origin:0 0;font-family:var(--font-hud);color:#fff;overflow:hidden;background:#0a0d12}
+  #road{position:absolute;inset:0;width:2160px;height:1080px}
+  .hdr{position:absolute;left:0;top:0;width:2160px;height:420px;background:linear-gradient(to bottom,rgba(0,0,0,.45),rgba(0,0,0,0))}
+  .border{position:absolute;inset:0;border:30px solid transparent;pointer-events:none;transition:border-color .2s}
+  .border.on{border-color:#17FF4F}
+  .border.warn{border-color:#DA6F25}
+  .border.crit{border-color:#C92231}
+  .setspeed{position:absolute;left:60px;top:45px;width:200px;height:204px;border-radius:70px;background:rgba(0,0,0,.65);border:6px solid rgba(255,255,255,.2);text-align:center}
+  .setspeed .max{font-size:40px;font-weight:600;margin-top:27px;color:rgba(255,255,255,.7);letter-spacing:.02em}
+  .setspeed .val{font-size:90px;font-weight:700;line-height:1;margin-top:8px}
+  .setspeed.off .val{color:rgba(255,255,255,.35)}
+  .speed{position:absolute;left:0;width:2160px;text-align:center;top:92px;font-size:176px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+  .unit{position:absolute;left:0;width:2160px;text-align:center;top:257px;font-size:66px;font-weight:500;color:rgba(255,255,255,.8)}
+  .exp{position:absolute;right:30px;top:30px;width:150px;height:150px;border-radius:50%;background:rgba(0,0,0,.55);border:6px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center}
+  .exp span{width:64px;height:64px;border-radius:50%;background:#fff;opacity:.9}
+  .exp.e2e span{background:#37D3FF}
+  /* proposed additions */
+  .chip{position:absolute;display:inline-flex;align-items:center;gap:16px;height:84px;padding:0 30px;border-radius:42px;background:rgba(0,0,0,.62);border:4px solid rgba(255,255,255,.18);font-size:36px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+  .chip i{width:26px;height:26px;border-radius:50%;display:inline-block}
+  .chip.wx i{background:#F5B841}.chip.night i{background:#8A97FF}.chip.zone i{background:#2FD3A1}.chip.prof i{background:#fff}
+  .trip{position:absolute;left:60px;bottom:60px;font-family:var(--font-hud);font-size:34px;font-weight:500;color:rgba(255,255,255,.85);display:flex;gap:44px;font-variant-numeric:tabular-nums}
+  .trip b{font-weight:700;color:#fff}
+  .model{position:absolute;right:60px;bottom:64px;font-size:28px;font-weight:500;color:rgba(255,255,255,.55);letter-spacing:.02em}
+  .alert{position:absolute;left:0;right:0;bottom:0;border-radius:30px 30px 0 0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;padding:20px 60px;text-align:center}
+  .alert.small{height:271px;display:flex}.alert.mid{height:420px;display:flex}.alert.full{top:0;height:1080px;border-radius:0;display:flex}
+  .alert .t1{font-size:74px;font-weight:700;line-height:1.1}.alert .t2{font-size:60px;font-weight:400;opacity:.92}
+  .alert.full .t1{font-size:132px}.alert.full .t2{font-size:74px}
+  .hide{display:none!important}
+  /* rail */
+  .rail{display:flex;flex-direction:column;gap:12px}
+  fieldset{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px 14px;margin:0;min-width:0}
+  legend{padding:0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);font-weight:700}
+  .row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:6px 0}
+  .row+.row{border-top:1px solid var(--line)}
+  label{font-weight:500}
+  .val{font-family:var(--font-mono);font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums;min-width:56px;text-align:right}
+  input[type=range]{width:100%;accent-color:var(--accent);margin:6px 0 0}
+  select,button.small{font:600 13px var(--font-ui);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+  .tog{position:relative;width:44px;height:26px;border-radius:999px;background:var(--line);border:0;cursor:pointer;transition:background .15s}
+  .tog::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+  .tog[aria-checked="true"]{background:var(--accent)}.tog[aria-checked="true"]::after{left:21px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{font:600 12px var(--font-ui);padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+  .seg button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent-ink);box-shadow:inset 0 0 0 1px var(--accent)}
+  .spec{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .spec-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .spec p{color:var(--mute);margin:4px 0 10px;max-width:70ch}
+  table{width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--mute);font-weight:500;letter-spacing:.04em}
+  td.num{text-align:right}
+  .tablewrap{overflow-x:auto}
+  textarea{width:100%;min-height:120px;margin-top:10px;font:12px var(--font-mono);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;resize:vertical}
+  .note{font-size:12.5px;color:var(--mute)}
+  :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">comma 3X · sunnypilot · ioniq6-tizi-custom</p>
+      <h1>Ioniq 6 HUD Workbench</h1>
+      <p class="sub">The driving screen at its real size, 2160 × 1080 device pixels, with the device's own type sizes and alert colors. Flip between the stock HUD and the proposed additions, set a driving situation, then take the spec to <code>hud_renderer.py</code>.</p>
+    </div>
+    <div class="switch" role="group" aria-label="Stock or upgraded HUD">
+      <button id="modeStock" aria-pressed="false">Stock</button>
+      <button id="modeUp" aria-pressed="true">Upgraded</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="stage" aria-label="Simulated driving screen">
+      <div class="stage-head"><span>frame 2160 × 1080 · border 30 · Inter as on device</span><span id="scaleOut">scale —</span></div>
+      <div class="device" id="device">
+        <div id="screen">
+          <canvas id="road" width="2160" height="1080" aria-hidden="true"></canvas>
+          <div class="hdr"></div>
+          <div class="border" id="border"></div>
+
+          <div class="setspeed" id="setspeed"><div class="max" id="maxLabel">MAX</div><div class="val" id="setVal">100</div></div>
+          <div class="speed" id="speedVal">87</div>
+          <div class="unit" id="unitVal">km/h</div>
+          <div class="exp" id="exp"><span></span></div>
+
+          <!-- proposed additions (upgraded mode) -->
+          <div class="chip wx up" id="chipWx" style="left:60px;top:279px"><i></i><span id="chipWxText">Rain mode</span></div>
+          <div class="chip night up" id="chipNight" style="left:60px;top:383px"><i></i><span>Night mode</span></div>
+          <div class="chip zone up" id="chipZone" style="left:60px;top:487px"><i></i><span id="chipZoneText">Home · Eco</span></div>
+          <div class="chip prof up" id="chipProf" style="right:60px;top:210px"><i></i><span id="chipProfText">Sport</span></div>
+          <div class="trip up" id="trip"><span>trip <b id="tripKm">12.4</b> km</span><span>engaged <b id="tripPct">91</b>%</span></div>
+          <div class="model up" id="model">model · NDMV2</div>
+
+          <div class="alert" id="alert"><div class="t1" id="alertT1"></div><div class="t2" id="alertT2"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="rail" aria-label="Situation controls">
+      <fieldset><legend>Drive</legend>
+        <div class="row"><label for="speed">Speed</label><span class="val" id="speedOut">87 km/h</span></div>
+        <input id="speed" type="range" min="0" max="160" value="87" aria-label="Speed">
+        <div class="row"><label for="setspd">Set speed</label><span class="val" id="setOut">100</span></div>
+        <input id="setspd" type="range" min="0" max="160" value="100" aria-label="Set speed (0 = cruise not set)">
+        <div class="row"><label>Engaged</label><button class="tog" id="engaged" role="switch" aria-checked="true" aria-label="Engaged"></button></div>
+        <div class="row"><label>Experimental (end-to-end)</label><button class="tog" id="e2e" role="switch" aria-checked="false" aria-label="Experimental mode"></button></div>
+        <div class="row"><label>Units</label><div class="seg" id="units"><button data-v="metric" aria-pressed="true">km/h</button><button data-v="imperial" aria-pressed="false">mph</button></div></div>
+      </fieldset>
+
+      <fieldset><legend>Conditions</legend>
+        <div class="row"><label for="wx">Weather</label><select id="wx"><option value="clear">Clear</option><option value="rain" selected>Rain</option><option value="rain_storm">Storm</option><option value="snow">Snow</option><option value="low_visibility">Low visibility</option></select></div>
+        <div class="row"><label>Night mode</label><button class="tog" id="night" role="switch" aria-checked="false" aria-label="Night mode"></button></div>
+        <p class="note">Mirrors <code>sunnypilot_weather.json</code>: a weather condition always outranks night.</p>
+      </fieldset>
+
+      <fieldset><legend>Location</legend>
+        <div class="row"><label for="zone">Geofence</label><select id="zone"><option value="">None</option><option value="Home" selected>Home</option><option value="Highway">Highway</option></select></div>
+        <div class="row"><label>Accel profile</label><div class="seg" id="prof"><button data-v="eco" aria-pressed="true">Eco</button><button data-v="normal" aria-pressed="false">Normal</button><button data-v="sport" aria-pressed="false">Sport</button></div></div>
+        <div class="row"><label for="modelSel">Driving model</label><select id="modelSel"><option>NDMV2</option><option>PM</option><option>CGWM</option><option>TCPMV3</option><option>CD210 (default)</option></select></div>
+      </fieldset>
+
+      <fieldset><legend>Alert</legend>
+        <div class="seg" id="alerts">
+          <button data-v="none" aria-pressed="true">None</button>
+          <button data-v="normal" aria-pressed="false">Normal</button>
+          <button data-v="userPrompt" aria-pressed="false">Prompt</button>
+          <button data-v="critical" aria-pressed="false">Critical</button>
+          <button data-v="full" aria-pressed="false">Full-screen</button>
+        </div>
+        <p class="note">Colors and radius are the device's: #151515 · #DA6F25 · #C92231, radius 30, sizes 271 / 420 / full.</p>
+      </fieldset>
+    </aside>
+  </div>
+
+  <section class="spec">
+    <div class="spec-head"><div><p class="eyebrow">Port to hud_renderer.py</p><strong>Placement spec for the additions (device px)</strong></div><span class="note" id="specMode">Upgraded · 4 additions shown</span></div>
+    <p>Positions are in the 2160 × 1080 frame the raylib UI draws in, so they translate directly to <code>rl.Rectangle</code> values. The additions stack in the left column under the set-speed pill (x = 60, same edge as the pill) so the road view in the centre stays clear; the profile chip sits under the experimental button on the right.</p>
+    <div class="tablewrap"><table id="specTable"><thead><tr><th>element</th><th class="num">x</th><th class="num">y</th><th class="num">w</th><th class="num">h</th><th class="num">font</th><th>shown when</th></tr></thead><tbody></tbody></table></div>
+    <textarea id="specJson" aria-label="Spec as JSON" readonly></textarea>
+  </section>
+</div>
+
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  const S={upgraded:true,speed:87,set:100,engaged:true,e2e:false,units:"metric",wx:"rain",night:false,zone:"Home",prof:"eco",model:"NDMV2",alert:"none",tripKm:12.4,tripPct:91};
+  const WX={clear:"",rain:"Rain mode",rain_storm:"Storm mode",snow:"Snow mode",low_visibility:"Low visibility"};
+  const ALERTS={normal:["Steering torque high","Keep hands on wheel"],userPrompt:["Pay attention","Driver distracted"],critical:["TAKE CONTROL IMMEDIATELY","Steering unavailable"],full:["TAKE CONTROL IMMEDIATELY","Reboot device"]};
+  const KM_TO_MI=0.621371;
+
+  // road (generative, so the HUD reads over a camera-like scene)
+  (function road(){
+    const c=$("road"),x=c.getContext("2d"),W=2160,H=1080;
+    const sky=x.createLinearGradient(0,0,0,H*.55); sky.addColorStop(0,"#1c2431"); sky.addColorStop(1,"#3a4250");
+    x.fillStyle=sky; x.fillRect(0,0,W,H*.55);
+    const g=x.createLinearGradient(0,H*.55,0,H); g.addColorStop(0,"#2a2d31"); g.addColorStop(1,"#101214");
+    x.fillStyle=g; x.fillRect(0,H*.55,W,H*.45);
+    const hz=H*.55, vx=W/2;
+    x.fillStyle="#232629"; x.beginPath(); x.moveTo(vx-40,hz); x.lineTo(vx+40,hz); x.lineTo(W*.86,H); x.lineTo(W*.14,H); x.closePath(); x.fill();
+    x.strokeStyle="rgba(255,255,255,.55)"; x.lineWidth=6; x.setLineDash([70,90]);
+    x.beginPath(); x.moveTo(vx,hz+20); x.lineTo(vx,H); x.stroke();
+    x.setLineDash([]); x.strokeStyle="rgba(255,255,255,.35)"; x.lineWidth=5;
+    x.beginPath(); x.moveTo(vx-40,hz); x.lineTo(W*.14,H); x.moveTo(vx+40,hz); x.lineTo(W*.86,H); x.stroke();
+    // model path (the green lane the model draws when engaged)
+    const p=x.createLinearGradient(0,hz,0,H); p.addColorStop(0,"rgba(23,255,79,0)"); p.addColorStop(1,"rgba(23,255,79,.38)");
+    x.fillStyle=p; x.beginPath(); x.moveTo(vx-14,hz+60); x.lineTo(vx+14,hz+60); x.lineTo(vx+260,H); x.lineTo(vx-260,H); x.closePath(); x.fill();
+  })();
+
+  function fit(){const w=$("device").clientWidth,sc=w/2160;$("screen").style.transform=`scale(${sc})`;$("scaleOut").textContent=`scale ${sc.toFixed(3)} · ${Math.round(w)} × ${Math.round(w/2)} css px`;}
+  window.addEventListener("resize",fit);
+
+  function render(){
+    const metric=S.units==="metric", conv=metric?1:KM_TO_MI, unit=metric?"km/h":"mph";
+    $("speedVal").textContent=Math.round(S.speed*conv);
+    $("unitVal").textContent=unit;
+    $("speedOut").textContent=`${Math.round(S.speed*conv)} ${unit}`;
+    const set=S.set>0?Math.round(S.set*conv):0;
+    $("setVal").textContent=set>0?set:"–"; $("setOut").textContent=set>0?set:"not set";
+    $("setspeed").classList.toggle("off",set===0);
+    $("maxLabel").textContent=metric?"MAX":"MAX";
+    const b=$("border"); b.className="border"+(S.alert==="critical"||S.alert==="full"?" crit":S.alert==="userPrompt"?" warn":S.engaged?" on":"");
+    $("exp").classList.toggle("e2e",S.e2e);
+    // additions
+    document.querySelectorAll(".up").forEach(el=>el.classList.toggle("hide",!S.upgraded));
+    const wxOn=S.wx!=="clear", nightOn=!wxOn&&S.night;
+    $("chipWx").classList.toggle("hide",!S.upgraded||!wxOn); $("chipWxText").textContent=WX[S.wx]||"";
+    $("chipNight").classList.toggle("hide",!S.upgraded||!nightOn);
+    // stack the left column without gaps
+    let y=279; if(wxOn){$("chipWx").style.top=y+"px";y+=104;} if(nightOn){$("chipNight").style.top=y+"px";y+=104;}
+    const zoneOn=!!S.zone; $("chipZone").classList.toggle("hide",!S.upgraded||!zoneOn); if(zoneOn){$("chipZone").style.top=y+"px";$("chipZoneText").textContent=`${S.zone} · ${cap(S.prof)}`;}
+    const profOn=!zoneOn&&S.prof!=="normal"; $("chipProf").classList.toggle("hide",!S.upgraded||!profOn); $("chipProfText").textContent=cap(S.prof);
+    $("tripKm").textContent=(S.tripKm*(metric?1:KM_TO_MI)).toFixed(1); $("tripPct").textContent=S.tripPct;
+    $("trip").querySelector("span").lastChild.textContent=metric?" km":" mi";
+    $("model").textContent="model · "+S.model.replace(" (default)","");
+    // alert
+    const a=$("alert"); a.className="alert"; a.style.background="";
+    if(S.alert!=="none"){const [t1,t2]=ALERTS[S.alert]; $("alertT1").textContent=t1; $("alertT2").textContent=t2;
+      const col={normal:"rgba(21,21,21,.945)",userPrompt:"rgba(218,111,37,.945)",critical:"rgba(201,34,49,.945)",full:"rgba(201,34,49,.945)"}[S.alert];
+      a.style.background=col; a.classList.add(S.alert==="full"?"full":S.alert==="normal"?"small":"mid");}
+    spec(wxOn,nightOn,zoneOn,profOn);
+  }
+  function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+  function spec(wxOn,nightOn,zoneOn,profOn){
+    const rows=[]; let y=279;
+    const chip=(name,x,yy,when,right)=>rows.push({element:name,x:right?2160-60-380:x,y:yy,w:380,h:84,font:36,when});
+    if(wxOn){chip("weather chip",60,y,"weather ≠ clear");y+=104;}
+    if(nightOn){chip("night chip",60,y,"night & weather clear");y+=104;}
+    if(zoneOn){chip("geofence chip",60,y,"inside a zone");}
+    if(profOn){chip("profile chip",0,210,"profile ≠ normal & no zone",true);}
+    rows.push({element:"trip readout",x:60,y:1080-60-40,w:620,h:40,font:34,when:"always (upgraded)"});
+    rows.push({element:"model label",x:2160-60-300,y:1080-64-32,w:300,h:32,font:28,when:"always (upgraded)"});
+    const tb=$("specTable").tBodies[0]; tb.innerHTML=rows.map(r=>`<tr><td>${r.element}</td><td class="num">${r.x}</td><td class="num">${r.y}</td><td class="num">${r.w}</td><td class="num">${r.h}</td><td class="num">${r.font}</td><td>${r.when}</td></tr>`).join("");
+    $("specJson").value=JSON.stringify({frame:[2160,1080],border:30,font:"Inter",additions:rows},null,2);
+    const n=rows.length-2+( wxOn?0:0); $("specMode").textContent=S.upgraded?`Upgraded · ${n} chip${n===1?"":"s"} + trip + model`:"Stock · additions hidden";
+  }
+
+  // wiring
+  $("modeStock").onclick=()=>{S.upgraded=false;$("modeStock").setAttribute("aria-pressed","true");$("modeUp").setAttribute("aria-pressed","false");render();};
+  $("modeUp").onclick=()=>{S.upgraded=true;$("modeUp").setAttribute("aria-pressed","true");$("modeStock").setAttribute("aria-pressed","false");render();};
+  $("speed").oninput=e=>{S.speed=+e.target.value;render();};
+  $("setspd").oninput=e=>{S.set=+e.target.value;render();};
+  const tog=(id,key)=>{$(id).onclick=()=>{S[key]=!S[key];$(id).setAttribute("aria-checked",String(S[key]));render();};};
+  tog("engaged","engaged"); tog("e2e","e2e"); tog("night","night");
+  const seg=(id,key)=>{$(id).querySelectorAll("button").forEach(b=>b.onclick=()=>{S[key]=b.dataset.v;$(id).querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));render();});};
+  seg("units","units"); seg("prof","prof"); seg("alerts","alert");
+  $("wx").onchange=e=>{S.wx=e.target.value;render();};
+  $("zone").onchange=e=>{S.zone=e.target.value;render();};
+  $("modelSel").onchange=e=>{S.model=e.target.value;render();};
+  fit(); render();
+})();
+</script>
