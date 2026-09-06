@@ -62,6 +62,7 @@ Plus everything sunnypilot gives you: MADS / Always-on Lateral, NNLC, Auto Lane 
 
 - **[FEATURES.md](FEATURES.md)** — full inventory, defaults, and what's deliberately not included
 - **[SETTINGS.md](SETTINGS.md)** — every config file, field, safe range, and the enable/test guideline
+- **[tools/ui_mock/hud_mock.html](tools/ui_mock/hud_mock.html)** — the HUD Workbench: the driving screen at true 2160 × 1080 scale, Stock vs Upgraded, with a device-px placement spec for porting additions to `hud_renderer.py`
 
 ## 🔄 Updates
 
