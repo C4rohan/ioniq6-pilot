@@ -17,8 +17,14 @@ Car: **Hyundai Ioniq 6 (2023–24, non-HDA-II / HDA)** · Device: **comma 3X** �
 | **Weather-adaptive lateral** | Same conditions: slows more for curves (shrinks the lateral-accel budget the vision turn controller uses) | **Off** | same file, `lat_pct` per condition |
 | **Accel profiles (Eco/Normal/Sport)** | Scales how briskly it accelerates to the set speed; never touches braking, gap, or safety limits; hard-capped at 2.5 m/s² | **Off (Normal)** | `/data/sunnypilot_accel.json` |
 | **On-device settings server** | Edit the config files above from a phone browser on the car's network (`:8088`), instead of SSH | **Off (code only, not registered)** | manual one-line `process_config.py` edit |
+| **Night mode** | After sunset / before sunrise (from the OWM lookup), applies gentle conservative offsets when the weather is otherwise clear; a weather condition always takes precedence | **Off** | `sunnypilot_weather.json` → `night_enabled`, `offsets.night` |
+| **Live dashboard** | Onroad/engaged, speed, weather mode, model, trip km & engaged % in real time on the phone page | with settings server | — |
+| **Trip logger** | One row per drive: duration, km, max speed, engaged %, disengagements, weather, model → `/data/sp_trips.csv` | with settings server | — |
+| **Disengagement logger** | Time, speed, gas/brake/steer pressed, standstill, weather, trip km per disengagement → `/data/sp_disengagements.csv` | with settings server | — |
+| **Notifications** | Drive summary (and optional zone entries) to Telegram or a generic webhook when you park | **Off** | `/data/sunnypilot_notify.json` |
+| **Geofences** | Inside a zone, switch the accel profile (e.g. Eco at home, Sport on the highway); leaving restores the default | **Off** | `/data/sunnypilot_geofences.json` |
 
-All custom features are **off by default**, **fail safe to stock** (any error / offline / stale / disabled → identical to unmodified sunnypilot), and configured via on-device JSON files (new settings can't be registered on a prebuilt branch). API keys stay on the device and never enter this repo.
+Telemetry (dashboard, logs, notifications, geofences) runs inside the settings-server process and never touches vehicle control. All custom features are **off by default**, **fail safe to stock** (any error / offline / stale / disabled → identical to unmodified sunnypilot), and configured via on-device JSON files (new settings can't be registered on a prebuilt branch). API keys stay on the device and never enter this repo.
 
 ### Safety design
 - Every hook is a `getattr(..., neutral_default)` — the code path is inert unless configured.

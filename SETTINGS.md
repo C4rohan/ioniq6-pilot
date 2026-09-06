@@ -12,8 +12,10 @@ to re-tune. Every custom feature is **off by default** and **fails safe to stock
 |---|---|---|
 | `/data/sunnypilot_weather.json` | Weather-adaptive (longitudinal + lateral) | `enabled`, `owm_api_key`, `refresh_s`, `offsets` |
 | `/data/sunnypilot_accel.json` | Accel profile | `enabled`, `profile` (`eco`/`normal`/`sport`) |
+| `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips`, `notify_zones` |
+| `/data/sunnypilot_geofences.json` | Geofenced accel profile | `enabled`, `default_accel_profile`, `zones[]` (`name`, `lat`, `lon`, `radius_m`, `accel_profile`) |
 
-Read-only status (auto-written, don't edit): `/data/sunnypilot_weather_status.json`.
+Read-only, auto-written (don't edit): `/data/sunnypilot_weather_status.json`, `/data/sp_trips.csv`, `/data/sp_disengagements.csv`.
 
 Templates ship in the repo: `sunnypilot/selfdrive/controls/lib/weather_adaptive.example.json`
 and `accel_profiles.example.json`.
@@ -30,6 +32,8 @@ Per condition (`rain`, `rain_storm`, `snow`, `low_visibility`):
 | `lat_pct` | % reduction of curve speed | 0 … 40 (never below 60% of normal) |
 
 `enabled: true` **and** a non-empty `owm_api_key` are both required for it to act.
+
+**Night mode:** set `night_enabled: true`; the `offsets.night` entry is applied after sunset / before sunrise (times come from the same OWM lookup) whenever the weather is otherwise clear. A real weather condition always wins over night.
 Get a free key at <https://openweathermap.org/api>. The key stays on the device.
 
 ## Accel profile
@@ -55,6 +59,11 @@ You configure settings **parked**, never while driving. The phone and the comma
 Weather needs internet only to fetch the forecast, and it caches for ~3 hours, so
 brief dead zones don't drop the offsets. The accel profile needs no internet at
 all. Without a comma LTE SIM, run the 3X on your phone's hotspot.
+
+## Notifications & geofences
+
+- **Notifications:** `type: telegram` needs a bot token + chat id (message @BotFather, then @userinfobot for your id). `type: webhook` POSTs `{"text": ...}` to `webhook_url` — point it at any bridge (e.g. your own WhatsApp gateway). Secrets stay on the device and are masked on the phone page.
+- **Geofences:** each zone is a circle (`lat`, `lon`, `radius_m`). Entering a zone writes its `accel_profile` into `sunnypilot_accel.json`; leaving restores `default_accel_profile`. It only writes on a zone *change*, so manual edits aren't fought. Get coordinates from Google Maps (long-press a spot).
 
 ## Editing settings
 
