@@ -30,6 +30,7 @@ Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) and layers Ion
 | 🧾 | **Trip & disengagement logs** | Every drive and every disengagement, with context (speed, pedals, weather), so tuning is data-driven. |
 | 💬 | **Notifications** | Drive summaries to Telegram or any webhook the moment you park. |
 | 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder. |
+| 🅿️ | **Reverse camera view** | Shift to reverse and the screen shows a clean full-screen camera (driving overlays hidden) with a REVERSE badge — a parking aid using the forward camera. |
 | 📱 | **Phone settings page** | Edit every setting from a browser on the car's network. No SSH after setup. |
 
 Plus everything sunnypilot gives you: MADS / Always-on Lateral, NNLC, Auto Lane Change, Smart Cruise Control (vision + map curve speed), Speed Limit Assist, Dynamic Experimental Control, and the driving-model selector.

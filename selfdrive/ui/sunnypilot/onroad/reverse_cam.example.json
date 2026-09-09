@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to /data/sunnypilot_reverse_cam.json. Enabled by default even without this file; set enabled=false to keep the normal HUD in reverse.",
+  "enabled": true,
+  "hide_overlays": true
+}

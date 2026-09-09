@@ -35,6 +35,7 @@ CONFIGS = {
   "accel":     ("/data/sunnypilot_accel.json", True),
   "notify":    ("/data/sunnypilot_notify.json", True),
   "geofences": ("/data/sunnypilot_geofences.json", True),
+  "reverse_cam": ("/data/sunnypilot_reverse_cam.json", True),
   "weather_status": ("/data/sunnypilot_weather_status.json", False),
 }
 
@@ -106,7 +107,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 </main>
 <footer>LAN only · no login · secrets are masked (leave the dots to keep a saved key)</footer>
 <script>
-const CFGS=["weather","accel","notify","geofences"];
+const CFGS=["weather","accel","notify","geofences","reverse_cam"];
 const $=id=>document.getElementById(id);
 async function get(u){const r=await fetch(u);return r.ok?await r.text():"";}
 async function status(){try{const s=JSON.parse(await get("/api/status"));

@@ -16,6 +16,7 @@ Car: **Hyundai Ioniq 6 (2023–24, non-HDA-II / HDA)** · Device: **comma 3X** �
 | **Weather-adaptive longitudinal** | In rain / storm / snow / low visibility: more following time, larger stopped gap, reduced max acceleration | **Off** | `/data/sunnypilot_weather.json` (needs OpenWeatherMap key) |
 | **Weather-adaptive lateral** | Same conditions: slows more for curves (shrinks the lateral-accel budget the vision turn controller uses) | **Off** | same file, `lat_pct` per condition |
 | **Accel profiles (Eco/Normal/Sport)** | Scales how briskly it accelerates to the set speed; never touches braking, gap, or safety limits; hard-capped at 2.5 m/s² | **Off (Normal)** | `/data/sunnypilot_accel.json` |
+| **Reverse camera view** | Shifting to reverse hides the driving overlays and shows a clean forward-camera view + a REVERSE badge (parking aid; the 3X has no rear camera) | **On** | `/data/sunnypilot_reverse_cam.json` (`enabled`, `hide_overlays`) |
 | **On-device settings server** | Edit the config files above from a phone browser on the car's network (`:8088`), instead of SSH | **Off (code only, not registered)** | manual one-line `process_config.py` edit |
 | **Night mode** | After sunset / before sunrise (from the OWM lookup), applies gentle conservative offsets when the weather is otherwise clear; a weather condition always takes precedence | **Off** | `sunnypilot_weather.json` → `night_enabled`, `offsets.night` |
 | **Live dashboard** | Onroad/engaged, speed, weather mode, model, trip km & engaged % in real time on the phone page | with settings server | — |
