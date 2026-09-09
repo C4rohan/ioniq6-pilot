@@ -60,7 +60,7 @@ def xyzt(obj, x, y, z):
 
 
 def main():
-  ap = argparse.ArgumentParser(); ap.add_argument("--kph", type=float, default=100.0); ap.add_argument("--no-engage", action="store_true")
+  ap = argparse.ArgumentParser(); ap.add_argument("--kph", type=float, default=100.0); ap.add_argument("--no-engage", action="store_true"); ap.add_argument("--reverse", action="store_true", help="simulate gear in reverse (tests the reverse camera view)")
   a = ap.parse_args()
   Params().put_bool("IsMetric", True)
 
@@ -81,8 +81,12 @@ def main():
   print(f"fake_drive: publishing {len(services)} services + camera frames at 20 Hz (target {a.kph:.0f} km/h)", flush=True)
   while True:
     t = time.monotonic() - t0; fid += 1
-    v = min(v_set, t * 1.5) + (1.5 * math.sin(t / 6.0) if t > 10 else 0.0)
-    engaged = (not a.no_engage) and t > 3.0
+    if a.reverse:
+      v = 1.2 + 0.4 * math.sin(t)          # creeping backwards
+      engaged = False
+    else:
+      v = min(v_set, t * 1.5) + (1.5 * math.sin(t / 6.0) if t > 10 else 0.0)
+      engaged = (not a.no_engage) and t > 3.0
     curv = 0.0012 * math.sin(t / 4.0)
     ts = int(time.monotonic() * 1e9)
 
@@ -94,7 +98,7 @@ def main():
     cs = messaging.new_message("carState"); s = cs.carState
     s.vEgo = v; s.vEgoCluster = v; s.aEgo = 0.0; s.standstill = v < 0.1
     s.steeringAngleDeg = math.degrees(curv * 2.97 * 14.26); sset(s, vCruise=a.kph, vCruiseCluster=a.kph)
-    sset(s.cruiseState, enabled=True, available=True, speed=v_set); sset(s, gearShifter=enum(car.CarState.GearShifter, "drive")); pm.send("carState", cs)
+    sset(s.cruiseState, enabled=True, available=True, speed=v_set); sset(s, gearShifter=enum(car.CarState.GearShifter, "reverse" if a.reverse else "drive")); pm.send("carState", cs)
 
     ss = messaging.new_message("selfdriveState"); d = ss.selfdriveState
     d.enabled = engaged; d.active = engaged

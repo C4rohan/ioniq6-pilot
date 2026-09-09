@@ -19,6 +19,7 @@ if gui_app.sunnypilot_ui():
   from openpilot.selfdrive.ui.sunnypilot.onroad.driver_state import DriverStateRendererSP as DriverStateRenderer
   from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP as HudRenderer
   from openpilot.selfdrive.ui.sunnypilot.ui_state import OnroadTimerStatus
+  from openpilot.selfdrive.ui.sunnypilot.onroad.reverse_cam import ReverseCam
 
 OpState = log.SelfdriveState.OpenpilotState
 CALIBRATED = log.LiveCalibrationData.Status.calibrated
@@ -56,6 +57,7 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
     self._hud_renderer = HudRenderer()
     self.alert_renderer = AlertRenderer()
     self.driver_state_renderer = DriverStateRenderer()
+    self._reverse_cam = ReverseCam()  # Ioniq6: clean camera view while reversing
 
   def _render(self, rect):
     # Only render when system is started to avoid invalid data access
@@ -87,12 +89,17 @@ class AugmentedRoadView(CameraView, AugmentedRoadViewSP):
     # Render the base camera view
     super()._render(rect)
 
-    # Draw all UI overlays
-    self.model_renderer.render(self._content_rect)
-    AugmentedRoadViewSP.update_fade_out_bottom_overlay(self, self._content_rect)
-    self._hud_renderer.render(self._content_rect)
-    self.alert_renderer.render(self._content_rect)
-    self.driver_state_renderer.render(self._content_rect)
+    # Ioniq6: while reversing, show a clean camera (skip driving overlays) + REVERSE badge
+    if self._reverse_cam.active(ui_state.sm):
+      self.alert_renderer.render(self._content_rect)  # keep any critical alert visible
+      self._reverse_cam.render(self._content_rect)
+    else:
+      # Draw all UI overlays
+      self.model_renderer.render(self._content_rect)
+      AugmentedRoadViewSP.update_fade_out_bottom_overlay(self, self._content_rect)
+      self._hud_renderer.render(self._content_rect)
+      self.alert_renderer.render(self._content_rect)
+      self.driver_state_renderer.render(self._content_rect)
 
     # Custom UI extension point - add custom overlays here
     # Use self._content_rect for positioning within camera bounds

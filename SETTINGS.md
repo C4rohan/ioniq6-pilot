@@ -13,6 +13,7 @@ to re-tune. Every custom feature is **off by default** and **fails safe to stock
 | `/data/sunnypilot_weather.json` | Weather-adaptive (longitudinal + lateral) | `enabled`, `owm_api_key`, `refresh_s`, `offsets` |
 | `/data/sunnypilot_accel.json` | Accel profile | `enabled`, `profile` (`eco`/`normal`/`sport`) |
 | `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips`, `notify_zones` |
+| `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
 | `/data/sunnypilot_geofences.json` | Geofenced accel profile | `enabled`, `default_accel_profile`, `zones[]` (`name`, `lat`, `lon`, `radius_m`, `accel_profile`) |
 
 Read-only, auto-written (don't edit): `/data/sunnypilot_weather_status.json`, `/data/sp_trips.csv`, `/data/sp_disengagements.csv`.

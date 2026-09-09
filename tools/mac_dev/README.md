@@ -35,6 +35,7 @@ cd ~/openpilot-dev && PYTHONPATH=$PWD .venv/bin/python selfdrive/ui/ui.py
 cd ~/openpilot-dev && PYTHONPATH=$PWD .venv/bin/python tools/mac_dev/fake_drive.py --kph 100
 #   --kph N        target speed
 #   --no-engage    stay disengaged (test the not-engaged HUD state)
+#   --reverse      simulate reverse gear (tests the clean reverse camera view)
 ```
 
 Stop with Ctrl-C in each terminal (or `pkill -f selfdrive/ui/ui.py; pkill -f fake_drive.py`).
