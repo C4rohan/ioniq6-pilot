@@ -2,7 +2,7 @@
 
 # 🚗 openpilot — Ioniq 6 custom build
 
-**A personal, weather-aware, phone-managed build of openpilot for the Hyundai Ioniq 6 on a comma 3X.**
+**A personal, phone-managed build of openpilot for the Hyundai Ioniq 6 on a comma 3X.**
 
 ![Car](https://img.shields.io/badge/car-Hyundai%20Ioniq%206%20%282023%E2%80%9324%2C%20non--HDA--II%29-2f6feb?style=flat-square)
 ![Device](https://img.shields.io/badge/device-comma%203X-111827?style=flat-square)
@@ -16,56 +16,45 @@
 
 ---
 
-Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) and layers Ioniq 6–specific tuning plus a set of features you won't find in stock sunnypilot. Everything custom is **off by default**, **configured from your phone**, and **fails safe to stock**.
+Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6–specific steering tuning and a few phone-managed conveniences.
 
-## ✨ Unique features
+> **What openpilot controls on this car:** the Ioniq 6 (CAN-FD, `CANFD_NO_RADAR_DISABLE`) does **not** support openpilot longitudinal — your **factory ACC does gas, braking, and following distance**. openpilot here controls **steering only**. Features that would change speed, following distance, or acceleration don't work on this platform, so this build focuses on **steering quality and driver conveniences**.
+
+## ✨ Features
 
 | | Feature | What it does |
 |---|---|---|
-| 🌧️ | **Weather-adaptive driving** | Rain, storm, snow, or fog → more following distance, a bigger stopped gap, softer acceleration, and slower curves. Only ever more conservative. |
-| 🌙 | **Night mode** | After sunset (from the same weather lookup) it drives a touch more carefully when the weather is otherwise clear. |
-| 📍 | **Geofences** | Auto-switch the accel profile by location — Eco near home, Sport on your highway — no taps needed. |
-| 📊 | **Live dashboard** | Speed, engagement, weather mode, model, and trip stats on your phone in real time. |
-| 🧾 | **Trip & disengagement logs** | Every drive and every disengagement, with context (speed, pedals, weather), so tuning is data-driven. |
-| 💬 | **Notifications** | Drive summaries to Telegram or any webhook the moment you park. |
-| 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder. |
+| 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder — smoother, more accurate lane centering. |
 | 🅿️ | **Reverse camera view** | Shift to reverse and the screen shows a clean full-screen camera (driving overlays hidden) with a REVERSE badge — a parking aid using the forward camera. |
-| 📱 | **Phone settings page** | Edit every setting from a browser on the car's network. No SSH after setup. |
+| 📊 | **Live dashboard** | Speed, engagement, model, and trip stats on your phone in real time. |
+| 🧾 | **Trip & disengagement logs** | Every drive and every disengagement, with context (speed, pedals), so you can review how it's doing. |
+| 💬 | **Notifications** | Drive summary to Telegram or any webhook the moment you park. |
+| 📱 | **Phone settings page** | Edit the notification and reverse-camera settings from a browser on the car's network. |
 
-Plus everything sunnypilot gives you: MADS / Always-on Lateral, NNLC, Auto Lane Change, Smart Cruise Control (vision + map curve speed), Speed Limit Assist, Dynamic Experimental Control, and the driving-model selector.
+Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral, NNLC, Auto Lane Change, and the driving-model selector. (Sunnypilot's speed features — Speed Limit Control, curve slowing — rely on longitudinal control this car doesn't expose, so they don't actuate here.)
 
 ## 🚀 Quick start
 
 **Prerequisites:** comma 3X, the Hyundai **"L" harness** (CAN-FD, non-HDA-II), WiFi.
 
 1. **Install** — on the device choose *Custom Software* and enter `installer.comma.ai/C4rohan/ioniq6-tizi-custom`. (Already on the branch? *Settings → Software → Check for Update*.)
-2. **Enable the phone page** — one-time SSH:
-   ```
-   bash install_settings.sh
-   ```
-   It drops the config files into `/data`, enables the settings server on **:8088**, and reboots.
-3. **Open the dashboard** — put the 3X on your phone's hotspot, then browse to `http://<device-ip>:8088`. Paste your free [OpenWeatherMap](https://openweathermap.org/api) key under *weather* and you're live.
-4. **Toggle the sunnypilot basics** on the device: **MADS**, **NNLC**, **Auto Lane Change**.
+2. **Toggle the sunnypilot basics** on the device: **MADS**, **NNLC**, **Auto Lane Change**.
+3. *(Optional)* **Phone page** — one-time SSH: `bash install_settings.sh` enables the settings server on **:8088** and reboots. Then, on your phone's hotspot, browse to `http://<device-ip>:8088` for the dashboard, logs, and notification/reverse-cam settings.
 
-> ⚠️ Treat the first drive after any install, update, or setting change as a **shakedown** — empty road, hands ready. Enable one feature at a time.
+> ⚠️ Treat the first drive after any install or update as a **shakedown** — empty road, hands ready. This build carries a custom steering-torque tune.
 
 ## 🛡️ How it stays safe
-> **Longitudinal note (this car):** the Ioniq 6 (CAN-FD, `CANFD_NO_RADAR_DISABLE`) does **not** support openpilot longitudinal — your factory ACC does gas/brake. openpilot here controls **steering**. Features that change *following distance / acceleration* have no effect on this car; speed-related effects act only through sunnypilot's button-based speed control, if it actuates on your car.
 
-
-- Every custom hook is a `getattr(..., neutral)` — the code path is **inert unless configured**.
-- Weather/night features can only make driving **more** conservative; Sport is the single assertive setting and it's capped.
-- Hard clamps: extra following ≤ +1.5 s · extra stopped gap ≤ 5 m · min accel 30% · min curve speed 60% · abs max accel 2.5 m/s².
-- Offline, stale (> 3 h), disabled, or any error → **identical to stock**.
-- Telemetry, geofences, and notifications **never touch control** — they only read state and write files/webhooks.
-- Secrets (API keys, tokens) live only on the device and are masked on the phone page.
+- The custom steering tune and NNLC model are for the Ioniq 6's own platform (shared with the Ioniq 5).
+- Reverse view, dashboard, logs, and notifications **never touch control** — they only read state and write files/webhooks.
+- Secrets (bot tokens, webhook URLs) live only on the device and are masked on the phone page.
 
 ## 📚 Docs
 
-- **[FEATURES.md](FEATURES.md)** — full inventory, defaults, and what's deliberately not included
-- **[SETTINGS.md](SETTINGS.md)** — every config file, field, safe range, and the enable/test guideline
-- **[tools/mac_dev/](tools/mac_dev/setup_mac_dev.sh)** — run the real raylib driving UI on a Mac: rebuilds the three Cython modules for macOS (no Homebrew needed) so `selfdrive/ui/ui.py` runs natively for testing UI changes
-- **[tools/ui_mock/hud_mock.html](tools/ui_mock/hud_mock.html)** — the HUD Workbench: the driving screen at true 2160 × 1080 scale, Stock vs Upgraded, with a device-px placement spec for porting additions to `hud_renderer.py`
+- **[FEATURES.md](FEATURES.md)** — full inventory and what's deliberately not included (and why)
+- **[SETTINGS.md](SETTINGS.md)** — the config files and how to enable the phone page
+- **[tools/mac_dev/](tools/mac_dev/setup_mac_dev.sh)** — run the real raylib driving UI on a Mac to test UI changes
+- **[tools/ui_mock/hud_mock.html](tools/ui_mock/hud_mock.html)** — the HUD Workbench for designing UI additions
 
 ## 🔄 Updates
 
@@ -77,7 +66,7 @@ By default openpilot uploads driving data to comma's servers; you can view it vi
 
 ## Licensing
 
-Released under the [MIT License](LICENSE). This repository contains significant portions of code derived from [openpilot by comma.ai](https://github.com/commaai/openpilot), released under the MIT license with additional disclaimers, reproduced below as required. Weather presets, acceleration profiles, and remote settings were adapted from [FrogPilot](https://github.com/FrogAi/FrogPilot) (MIT).
+Released under the [MIT License](LICENSE). This repository contains significant portions of code derived from [openpilot by comma.ai](https://github.com/commaai/openpilot), released under the MIT license with additional disclaimers, reproduced below as required.
 
 > openpilot is released under the MIT license. Some parts of the software are released under other licenses as specified.
 >
