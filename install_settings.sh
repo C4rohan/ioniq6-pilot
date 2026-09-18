@@ -24,9 +24,6 @@ echo ">> /data/sunnypilot_weather.json (weather-adaptive + night mode, key added
 }
 JSON
 
-echo ">> /data/sunnypilot_accel.json (Normal; switch from phone)"
-[ -f /data/sunnypilot_accel.json ] && echo "   exists, keeping" || echo '{ "enabled": true, "profile": "normal" }' > /data/sunnypilot_accel.json
-
 echo ">> enabling settings server + dashboard (:8088) in process_config.py (idempotent)"
 python3 - "$PC" <<'PY'
 import sys

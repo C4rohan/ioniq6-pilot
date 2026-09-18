@@ -11,7 +11,6 @@ to re-tune. Every custom feature is **off by default** and **fails safe to stock
 | File | Feature | Fields |
 |---|---|---|
 | `/data/sunnypilot_weather.json` | Weather-adaptive (longitudinal + lateral) | `enabled`, `owm_api_key`, `refresh_s`, `offsets` |
-| `/data/sunnypilot_accel.json` | Accel profile | `enabled`, `profile` (`eco`/`normal`/`sport`) |
 | `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips`, `notify_zones` |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
 | `/data/sunnypilot_geofences.json` | Geofenced accel profile | `enabled`, `default_accel_profile`, `zones[]` (`name`, `lat`, `lon`, `radius_m`, `accel_profile`) |
@@ -36,12 +35,6 @@ Per condition (`rain`, `rain_storm`, `snow`, `low_visibility`):
 
 **Night mode:** set `night_enabled: true`; the `offsets.night` entry is applied after sunset / before sunrise (times come from the same OWM lookup) whenever the weather is otherwise clear. A real weather condition always wins over night.
 Get a free key at <https://openweathermap.org/api>. The key stays on the device.
-
-## Accel profile
-
-`profile`: `eco` (gentler), `normal` (stock), `sport` (punchier). Only affects how
-briskly it accelerates to the set speed — never braking, following distance, or
-any safety limit. Hard-capped at 2.5 m/s².
 
 ## Connectivity — reaching the phone page and getting weather
 
