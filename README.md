@@ -24,7 +24,6 @@ Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) and layers Ion
 |---|---|---|
 | 🌧️ | **Weather-adaptive driving** | Rain, storm, snow, or fog → more following distance, a bigger stopped gap, softer acceleration, and slower curves. Only ever more conservative. |
 | 🌙 | **Night mode** | After sunset (from the same weather lookup) it drives a touch more carefully when the weather is otherwise clear. |
-| ⚡ | **Eco / Normal / Sport** | Choose how briskly it accelerates to the set speed. Braking and gaps untouched; hard-capped for safety. |
 | 📍 | **Geofences** | Auto-switch the accel profile by location — Eco near home, Sport on your highway — no taps needed. |
 | 📊 | **Live dashboard** | Speed, engagement, weather mode, model, and trip stats on your phone in real time. |
 | 🧾 | **Trip & disengagement logs** | Every drive and every disengagement, with context (speed, pedals, weather), so tuning is data-driven. |
@@ -51,6 +50,8 @@ Plus everything sunnypilot gives you: MADS / Always-on Lateral, NNLC, Auto Lane 
 > ⚠️ Treat the first drive after any install, update, or setting change as a **shakedown** — empty road, hands ready. Enable one feature at a time.
 
 ## 🛡️ How it stays safe
+> **Longitudinal note (this car):** the Ioniq 6 (CAN-FD, `CANFD_NO_RADAR_DISABLE`) does **not** support openpilot longitudinal — your factory ACC does gas/brake. openpilot here controls **steering**. Features that change *following distance / acceleration* have no effect on this car; speed-related effects act only through sunnypilot's button-based speed control, if it actuates on your car.
+
 
 - Every custom hook is a `getattr(..., neutral)` — the code path is **inert unless configured**.
 - Weather/night features can only make driving **more** conservative; Sport is the single assertive setting and it's capped.
