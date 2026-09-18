@@ -3,7 +3,7 @@
 On-device settings server + dashboard for the Ioniq 6 custom build.
 
 Serves a phone-friendly page (stdlib http.server, no deps) on the device LAN:
-  - live status (onroad, engaged, speed, weather mode, model, trip)
+  - live status (onroad, engaged, speed, model, trip)
   - editors for the custom-feature JSON configs
   - trip and disengagement logs
 Runs the telemetry thread (see telemetry.py).
@@ -27,15 +27,12 @@ from openpilot.sunnypilot.selfdrive.settings_server import telemetry
 
 PORT = 8088
 MASK = "••••••••"
-SECRET_KEYS = {"owm_api_key", "bot_token", "chat_id", "webhook_url"}
+SECRET_KEYS = {"bot_token", "chat_id", "webhook_url"}
 
 # name -> (path, writable)
 CONFIGS = {
-  "weather":   ("/data/sunnypilot_weather.json", True),
   "notify":    ("/data/sunnypilot_notify.json", True),
-  "geofences": ("/data/sunnypilot_geofences.json", True),
   "reverse_cam": ("/data/sunnypilot_reverse_cam.json", True),
-  "weather_status": ("/data/sunnypilot_weather_status.json", False),
 }
 
 TELEMETRY: telemetry.Telemetry | None = None
@@ -89,7 +86,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <header>🚗 Ioniq 6 · sunnypilot <small id="upd">—</small></header>
 <main>
 <div class="card"><h2>Live status</h2>
-<div style="margin-bottom:10px"><span id="onroad" class="pill off">offroad</span> <span id="engaged" class="pill off">not engaged</span> <span id="wx" class="pill wx">clear</span> <span id="zone" class="pill" style="background:#22283a;color:#c8cfe0;display:none"></span></div>
+<div style="margin-bottom:10px"><span id="onroad" class="pill off">offroad</span> <span id="engaged" class="pill off">not engaged</span> </div>
 <div class="grid">
 <div class="stat"><span>Speed</span><b id="kph">0</b>km/h</div>
 <div class="stat"><span>Trip</span><b id="tripkm">0.0</b>km</div>
@@ -102,26 +99,24 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 
 <div class="card"><h2>Recent trips</h2><div id="trips">loading…</div></div>
 <div class="card"><h2>Recent disengagements</h2><div id="dis">loading…</div></div>
-<div class="card"><h2>Weather status</h2><pre id="wxs">…</pre></div>
 </main>
 <footer>LAN only · no login · secrets are masked (leave the dots to keep a saved key)</footer>
 <script>
-const CFGS=["weather","notify","geofences","reverse_cam"];
+const CFGS=["notify","reverse_cam"];
 const $=id=>document.getElementById(id);
 async function get(u){const r=await fetch(u);return r.ok?await r.text():"";}
 async function status(){try{const s=JSON.parse(await get("/api/status"));
  $("onroad").className="pill "+(s.onroad?"on":"off");$("onroad").textContent=s.onroad?"onroad":"offroad";
  $("engaged").className="pill "+(s.engaged?"on":"off");$("engaged").textContent=s.engaged?"engaged":"not engaged";
- $("wx").textContent=s.weather||"clear";$("kph").textContent=s.kph;$("tripkm").textContent=s.trip_km;
+ $("kph").textContent=s.kph;$("tripkm").textContent=s.trip_km;
  $("tripeng").textContent=s.trip_engaged_pct;$("model").textContent=s.model;
- if(s.zone){$("zone").style.display="inline-block";$("zone").textContent="📍 "+s.zone}else{$("zone").style.display="none"}
  $("upd").textContent=s.updated?new Date(s.updated*1000).toLocaleTimeString():"—";}catch(e){}}
 function table(rows){if(!rows.length)return "<div style='color:var(--mut)'>none yet</div>";
  const h=Object.keys(rows[0]);return "<div style='overflow:auto'><table><tr>"+h.map(x=>"<th>"+x+"</th>").join("")+"</tr>"+
  rows.map(r=>"<tr>"+h.map(x=>"<td>"+(r[x]??"")+"</td>").join("")+"</tr>").join("")+"</table></div>";}
 async function logs(){try{$("trips").innerHTML=table(JSON.parse(await get("/api/trips")));
  $("dis").innerHTML=table(JSON.parse(await get("/api/disengagements")));
- $("wxs").textContent=(await get("/api/config?name=weather_status"))||"(none yet)";}catch(e){}}
+}catch(e){}}
 async function editor(name){const box=$("editors");box.innerHTML="";
  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("act",t.dataset.n===name));
  const ta=document.createElement("textarea");ta.value=(await get("/api/config?name="+name))||"{}";box.appendChild(ta);
@@ -130,7 +125,7 @@ async function editor(name){const box=$("editors");box.innerHTML="";
  b.onclick=async()=>{try{JSON.parse(ta.value)}catch(e){m.className="msg err";m.textContent="Invalid JSON: "+e.message;return}
   const r=await fetch("/api/config?name="+name,{method:"POST",body:ta.value});m.className="msg "+(r.ok?"ok":"err");m.textContent=await r.text();};}
 CFGS.forEach(n=>{const t=document.createElement("span");t.className="tab";t.dataset.n=n;t.textContent=n;t.onclick=()=>editor(n);$("tabs").appendChild(t)});
-editor("weather");status();logs();setInterval(status,2000);setInterval(logs,15000);
+editor("notify");status();logs();setInterval(status,2000);setInterval(logs,15000);
 </script></body></html>"""
 
 
