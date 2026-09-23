@@ -64,12 +64,13 @@ def main():
   ap.add_argument("--parked", action="store_true", help="car off / parked (tests sentry arming)")
   ap.add_argument("--motion", action="store_true", help="move a bright object across the road camera (tests sentry detection)")
   ap.add_argument("--overrides", action="store_true", help="take over the wheel every 5 s, into then against the curve (tests steering feedback)")
+  ap.add_argument("--hardbrake", action="store_true", help="brake hard (-5 m/s^2) for 1 s every 20 s (tests auto-save clips)")
   a = ap.parse_args()
   Params().put_bool("IsMetric", True)
 
   services = ["peripheralState", "deviceState", "pandaStates", "carParams", "carState", "controlsState", "selfdriveState", "modelV2",
               "liveCalibration", "radarState", "longitudinalPlan", "driverMonitoringState", "roadCameraState",
-              "wideRoadCameraState", "onroadEvents", "liveParameters", "carControl", "carOutput", "gpsLocationExternal"]
+              "wideRoadCameraState", "onroadEvents", "liveParameters", "carControl", "carOutput", "gpsLocationExternal", "gpsLocation"]
   pm = messaging.PubMaster(services)
 
   vipc = VisionIpcServer("camerad")
@@ -82,6 +83,7 @@ def main():
 
   rk = Ratekeeper(20, print_delay_threshold=None)
   t0 = time.monotonic(); fid = 0; v_set = a.kph / 3.6
+  glat, glon, heading = 40.7128, -74.0060, 0.6   # moving GPS position for the takeover map
   print(f"fake_drive: publishing {len(services)} services + camera frames at 20 Hz (target {a.kph:.0f} km/h)", flush=True)
   while True:
     t = time.monotonic() - t0; fid += 1
@@ -109,7 +111,8 @@ def main():
       m = messaging.new_message(name); c = getattr(m, name); c.frameId = fid; c.timestampSof = ts; c.timestampEof = ts; pm.send(name, m)
 
     cs = messaging.new_message("carState"); s = cs.carState
-    s.vEgo = v; s.vEgoCluster = v; s.aEgo = 0.0; s.standstill = v < 0.1
+    braking = a.hardbrake and (t % 20) < 1.0 and t > 5
+    s.vEgo = v; s.vEgoCluster = v; s.aEgo = -5.0 if braking else 0.0; s.standstill = v < 0.1
     s.steeringAngleDeg = math.degrees(curv * 2.97 * 14.26); sset(s, vCruise=a.kph, vCruiseCluster=a.kph)
     ovr_phase = int(t // 5); pressing = a.overrides and engaged and (t % 5) < 0.4
     tq = (1 if curv >= 0 else -1) * (150 if ovr_phase % 3 else -150) if pressing else 0.0   # 2 of 3 into the curve, 1 against
@@ -150,8 +153,13 @@ def main():
       lc = messaging.new_message("liveCalibration"); l = lc.liveCalibration; sset(l, calStatus=enum(log.LiveCalibrationData.Status, "calibrated"), calPerc=100)
       l.rpyCalib = [0.0, 0.0, 0.0]; sset(l, height=[1.22], validBlocks=20); pm.send("liveCalibration", lc)
       lpar = messaging.new_message("liveParameters"); sset(lpar.liveParameters, angleOffsetDeg=0.0, valid=True); pm.send("liveParameters", lpar)
-      g = messaging.new_message("gpsLocationExternal"); g.gpsLocationExternal.hasFix = True; g.gpsLocationExternal.latitude = 40.7128; g.gpsLocationExternal.longitude = -74.0060
-      g.gpsLocationExternal.unixTimestampMillis = int(time.time() * 1000); pm.send("gpsLocationExternal", g)
+      heading += curv * v * 0.25
+      glat += v * 0.25 * math.cos(heading) / 111111.0
+      glon += v * 0.25 * math.sin(heading) / (111111.0 * math.cos(math.radians(glat)))
+      for gname in ("gpsLocationExternal", "gpsLocation"):
+        g = messaging.new_message(gname); gl = getattr(g, gname)
+        sset(gl, hasFix=True, latitude=glat, longitude=glon, unixTimestampMillis=int(time.time() * 1000), speed=float(v))
+        pm.send(gname, g)
     rk.keep_time()
 
 

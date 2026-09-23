@@ -11,7 +11,7 @@ writes files** — nothing here controls the car (openpilot only steers on this 
 | `/data/sunnypilot_sentry.json` | Sentry mode | `enabled`, `arm_delay_s`, `cameras` (`road`/`driver`), `sensitivity`, `cooldown_s`, `max_hours`, `min_voltage`, `notify`, `max_notify_per_hour`, `max_storage_mb` |
 | `/data/sunnypilot_sound.json` | Alert volume | `enabled`, `volume` (0.1–1.0) |
 | `/data/sunnypilot_steer_feedback.json` | Steering-tune feedback (optional) | `min_speed_kph`, `straight_lat_accel`, `invert_sign` |
-| `/data/sunnypilot_clips.json` | Save clip (optional) | `full_res`, `max_storage_mb` |
+| `/data/sunnypilot_clips.json` | Save clip + auto-save (optional) | `full_res`, `max_storage_mb`, `auto_save`, `auto_brake_mps2`, `auto_takeover_lat`, `auto_takeover_kph`, `auto_disengage_kph`, `auto_delay_s`, `auto_min_gap_s`, `auto_max_per_day`, `notify_clips` |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
 | `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips` |
 
@@ -55,6 +55,20 @@ current minute and the 2 before it: full-quality footage stays on the device, an
 to `/data/saved_clips` for download (opens in VLC). The device's own on-screen bookmark button does the native half
 of this too. Only the 5 most recent bookmarks are protected by the device; the saved copies are kept until
 `max_storage_mb`.
+
+## Auto-save clips
+
+On by default. After hard braking (≤ −4 m/s²), a hard steering takeover (≥ 1.5 m/s² curve above 50 km/h), or a
+disengagement you didn't cause (above 40 km/h, no pedal, wheel, or cruise button), it waits 20 s and then saves
+the clip, so the footage includes what happened next. At most one every 60 s and 20 a day. Set `auto_save: false`
+to turn it off; `notify_clips` sends a message for each one.
+
+## Model scorecard and takeover map
+
+Nothing to enable. The scorecard ranks a model once you've driven 20 km on it. To compare fairly, drive the same
+roads on each model. The map needs your phone's internet for the street basemap (your phone's hotspot works); without
+it you still get a plain plot of the points. Your drive track and takeover locations are location history stored only
+on the device (`sp_track.csv` keeps the last 30 drives).
 
 ## Reverse camera view
 

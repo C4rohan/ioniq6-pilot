@@ -27,7 +27,9 @@ Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6�
 | 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder — smoother, more accurate lane centering. |
 | 🎯 | **Steering-tune feedback** | Every time you take over the wheel, it records speed and curve context and whether you steered *into* the bend (tune too weak) or *against* it (too strong). A chart and verdict on your phone tell you which way the tune leans. |
 | 🔉 | **Alert volume** | Turn down the chimes and prompts to your taste. Critical warnings always stay at full volume. |
-| 🎞️ | **Save clip** | One tap on your phone keeps the last 3 minutes of dashcam footage from being auto-deleted, and saves a copy you can download. |
+| 🎞️ | **Save clip + auto-save** | One tap on your phone keeps the last 3 minutes of dashcam footage and saves a copy you can download. It also saves automatically after hard braking, a hard steering takeover, or an unexpected disengagement. |
+| 🏆 | **Model scorecard** | Ranks the driving models you've tried by *your* takeovers per 100 km, disengagements, and engaged time. Answers "which model is best for me" with your own driving. |
+| 🗺️ | **Takeover map** | Every takeover pinned on a map of your drives, coloured too weak / too strong, so you can see exactly which curves it struggles on. |
 | 🅿️ | **Reverse camera view** | Shift to reverse and the screen shows a clean full-screen camera (driving overlays hidden) with a REVERSE badge — a parking aid using the forward camera. |
 | 🛡️ | **Sentry mode** | While parked, watches the road and cabin cameras; when something moves it saves photos and can send one to your phone. Stops itself on low 12V, overheating, or after a set time. |
 | 📊 | **Live dashboard** | Speed, engagement, model, and trip stats on your phone in real time. |
