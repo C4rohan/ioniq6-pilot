@@ -61,27 +61,33 @@ def xyzt(obj, x, y, z):
 
 def main():
   ap = argparse.ArgumentParser(); ap.add_argument("--kph", type=float, default=100.0); ap.add_argument("--no-engage", action="store_true"); ap.add_argument("--reverse", action="store_true", help="simulate gear in reverse (tests the reverse camera view)")
+  ap.add_argument("--parked", action="store_true", help="car off / parked (tests sentry arming)")
+  ap.add_argument("--motion", action="store_true", help="move a bright object across the road camera (tests sentry detection)")
   a = ap.parse_args()
   Params().put_bool("IsMetric", True)
 
-  services = ["deviceState", "pandaStates", "carParams", "carState", "controlsState", "selfdriveState", "modelV2",
+  services = ["peripheralState", "deviceState", "pandaStates", "carParams", "carState", "controlsState", "selfdriveState", "modelV2",
               "liveCalibration", "radarState", "longitudinalPlan", "driverMonitoringState", "roadCameraState",
               "wideRoadCameraState", "onroadEvents", "liveParameters", "carControl", "carOutput", "gpsLocationExternal"]
   pm = messaging.PubMaster(services)
 
   vipc = VisionIpcServer("camerad")
   size = W * H * 3 // 2
-  for st in (VisionStreamType.VISION_STREAM_ROAD, VisionStreamType.VISION_STREAM_WIDE_ROAD):
+  for st in (VisionStreamType.VISION_STREAM_ROAD, VisionStreamType.VISION_STREAM_WIDE_ROAD, VisionStreamType.VISION_STREAM_DRIVER):
     vipc.create_buffers_with_sizes(st, 5, W, H, size, W, W * H)
   vipc.start_listener()
   frame = nv12_frame()
+  base = np.frombuffer(frame, np.uint8).copy()
 
   rk = Ratekeeper(20, print_delay_threshold=None)
   t0 = time.monotonic(); fid = 0; v_set = a.kph / 3.6
   print(f"fake_drive: publishing {len(services)} services + camera frames at 20 Hz (target {a.kph:.0f} km/h)", flush=True)
   while True:
     t = time.monotonic() - t0; fid += 1
-    if a.reverse:
+    if a.parked:
+      v = 0.0
+      engaged = False
+    elif a.reverse:
       v = 1.2 + 0.4 * math.sin(t)          # creeping backwards
       engaged = False
     else:
@@ -90,7 +96,13 @@ def main():
     curv = 0.0012 * math.sin(t / 4.0)
     ts = int(time.monotonic() * 1e9)
 
-    for st in (VisionStreamType.VISION_STREAM_ROAD, VisionStreamType.VISION_STREAM_WIDE_ROAD):
+    road = frame
+    if a.motion and int(t) % 8 >= 4:                     # object walks through for 4 s every 8 s
+      img = base.copy(); yp = img[: W * H].reshape(H, W)
+      x0 = int((t % 4) / 4 * (W - 300)); yp[500:800, x0:x0 + 300] = 235
+      road = img.tobytes()
+    vipc.send(VisionStreamType.VISION_STREAM_ROAD, road, fid, ts, ts)
+    for st in (VisionStreamType.VISION_STREAM_WIDE_ROAD, VisionStreamType.VISION_STREAM_DRIVER):
       vipc.send(st, frame, fid, ts, ts)
     for name in ("roadCameraState", "wideRoadCameraState"):
       m = messaging.new_message(name); c = getattr(m, name); c.frameId = fid; c.timestampSof = ts; c.timestampEof = ts; pm.send(name, m)
@@ -124,8 +136,9 @@ def main():
     co = messaging.new_message("carOutput"); pm.send("carOutput", co)
 
     if fid % 5 == 0:   # 4 Hz group
-      ds = messaging.new_message("deviceState"); ds.deviceState.started = True; ds.deviceState.freeSpacePercent = 60; ds.deviceState.memoryUsagePercent = 30
-      sset(ds.deviceState, screenBrightnessPercent=100, thermalStatus=enum(log.DeviceState.ThermalStatus, "green"), networkType=enum(log.DeviceState.NetworkType, "wifi")); pm.send("deviceState", ds)
+      ds = messaging.new_message("deviceState"); ds.deviceState.started = not a.parked; ds.deviceState.freeSpacePercent = 60; ds.deviceState.memoryUsagePercent = 30
+      sset(ds.deviceState, screenBrightnessPercent=100, thermalStatus=enum(log.DeviceState.ThermalStatus, "ok", "green"), networkType=enum(log.DeviceState.NetworkType, "wifi")); pm.send("deviceState", ds)
+      pe = messaging.new_message("peripheralState"); sset(pe.peripheralState, voltage=12600); pm.send("peripheralState", pe)
       ps = messaging.new_message("pandaStates", 1); p = ps.pandaStates[0]; sset(p, ignitionLine=True, controlsAllowed=engaged)
       sset(p, pandaType=enum(log.PandaState.PandaType, "tres", "uno")); pm.send("pandaStates", ps)
       cp = messaging.new_message("carParams"); c = cp.carParams; sset(c, carName="HYUNDAI_IONIQ_6", carFingerprint="HYUNDAI_IONIQ_6")

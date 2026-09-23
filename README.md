@@ -26,6 +26,7 @@ Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6�
 |---|---|---|
 | 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder — smoother, more accurate lane centering. |
 | 🅿️ | **Reverse camera view** | Shift to reverse and the screen shows a clean full-screen camera (driving overlays hidden) with a REVERSE badge — a parking aid using the forward camera. |
+| 🛡️ | **Sentry mode** | While parked, watches the road and cabin cameras; when something moves it saves photos and can send one to your phone. Stops itself on low 12V, overheating, or after a set time. |
 | 📊 | **Live dashboard** | Speed, engagement, model, and trip stats on your phone in real time. |
 | 🧾 | **Trip & disengagement logs** | Every drive and every disengagement, with context (speed, pedals), so you can review how it's doing. |
 | 💬 | **Notifications** | Drive summary to Telegram or any webhook the moment you park. |
@@ -39,14 +40,15 @@ Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral,
 
 1. **Install** — on the device choose *Custom Software* and enter `installer.comma.ai/C4rohan/ioniq6-tizi-custom`. (Already on the branch? *Settings → Software → Check for Update*.)
 2. **Toggle the sunnypilot basics** on the device: **MADS**, **NNLC**, **Auto Lane Change**.
-3. *(Optional)* **Phone page** — one-time SSH: `bash install_settings.sh` enables the settings server on **:8088** and reboots. Then, on your phone's hotspot, browse to `http://<device-ip>:8088` for the dashboard, logs, and notification/reverse-cam settings.
+3. *(Optional)* **Phone page + sentry** — one-time SSH: `bash install_settings.sh` enables the settings server on **:8088**, installs the sentry hook (sentry stays off until you enable it), and reboots. Then, on your phone's hotspot, browse to `http://<device-ip>:8088` for the dashboard, logs, and notification/reverse-cam settings.
 
 > ⚠️ Treat the first drive after any install or update as a **shakedown** — empty road, hands ready. This build carries a custom steering-torque tune.
 
 ## 🛡️ How it stays safe
 
 - The custom steering tune and NNLC model are for the Ioniq 6's own platform (shared with the Ioniq 5).
-- Reverse view, dashboard, logs, and notifications **never touch control** — they only read state and write files/webhooks.
+- Sentry only runs while parked, disarms at 12.2 V (above comma's own 11.8 V cutoff), pauses when overheated, and stops after 12 h by default.
+- Reverse view, sentry, dashboard, logs, and notifications **never touch control** — they only read state and write files/webhooks.
 - Secrets (bot tokens, webhook URLs) live only on the device and are masked on the phone page.
 
 ## 📚 Docs
