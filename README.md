@@ -30,7 +30,7 @@ Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6�
 | 📊 | **Live dashboard** | Speed, engagement, model, and trip stats on your phone in real time. |
 | 🧾 | **Trip & disengagement logs** | Every drive and every disengagement, with context (speed, pedals), so you can review how it's doing. |
 | 💬 | **Notifications** | Drive summary to Telegram or any webhook the moment you park. |
-| 📱 | **Phone settings page** | Edit the notification and reverse-camera settings from a browser on the car's network. |
+| 📱 | **Phone settings page** | Edit sentry, notification, and reverse-camera settings and browse sentry photos from a browser on the car's network. |
 
 Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral, NNLC, Auto Lane Change, and the driving-model selector. (Sunnypilot's speed features — Speed Limit Control, curve slowing — rely on longitudinal control this car doesn't expose, so they don't actuate here.)
 
@@ -40,7 +40,7 @@ Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral,
 
 1. **Install** — on the device choose *Custom Software* and enter `installer.comma.ai/C4rohan/ioniq6-tizi-custom`. (Already on the branch? *Settings → Software → Check for Update*.)
 2. **Toggle the sunnypilot basics** on the device: **MADS**, **NNLC**, **Auto Lane Change**.
-3. *(Optional)* **Phone page + sentry** — one-time SSH: `bash install_settings.sh` enables the settings server on **:8088**, installs the sentry hook (sentry stays off until you enable it), and reboots. Then, on your phone's hotspot, browse to `http://<device-ip>:8088` for the dashboard, logs, and notification/reverse-cam settings.
+3. *(Optional)* **Phone page + sentry** — one-time SSH: `bash install_settings.sh` enables the settings server on **:8088**, installs the sentry hook (sentry stays off until you enable it), and reboots. Then, on your phone's hotspot, browse to `http://<device-ip>:8088` for the dashboard, sentry photos, logs, and settings.
 
 > ⚠️ Treat the first drive after any install or update as a **shakedown** — empty road, hands ready. This build carries a custom steering-torque tune.
 
