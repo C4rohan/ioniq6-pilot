@@ -16,8 +16,10 @@ Safety scope is deliberately narrow:
 Security: NO authentication (LAN only). Use on a trusted network. Not
 auto-registered as a process; enabling it is a deliberate manual edit.
 """
+import csv
 import json
 import os
+import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -28,11 +30,14 @@ from openpilot.sunnypilot.selfdrive.settings_server import telemetry
 PORT = 8088
 MASK = "••••••••"
 SECRET_KEYS = {"bot_token", "chat_id", "webhook_url"}
+SENTRY_DIR = "/data/sentry"
+SENTRY_IMG = re.compile(r"^[\w\-]+\.png$")
 
 # name -> (path, writable)
 CONFIGS = {
   "notify":    ("/data/sunnypilot_notify.json", True),
   "reverse_cam": ("/data/sunnypilot_reverse_cam.json", True),
+  "sentry":      ("/data/sunnypilot_sentry.json", True),
 }
 
 TELEMETRY: telemetry.Telemetry | None = None
@@ -97,12 +102,13 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div class="card"><h2>Settings</h2>
 <div class="tabs" id="tabs"></div><div id="editors"></div></div>
 
+<div class="card"><h2>Sentry</h2><div id="sen" style="margin-bottom:8px;color:var(--mut)">loading…</div><div id="senimgs" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px"></div></div>
 <div class="card"><h2>Recent trips</h2><div id="trips">loading…</div></div>
 <div class="card"><h2>Recent disengagements</h2><div id="dis">loading…</div></div>
 </main>
 <footer>LAN only · no login · secrets are masked (leave the dots to keep a saved key)</footer>
 <script>
-const CFGS=["notify","reverse_cam"];
+const CFGS=["sentry","notify","reverse_cam"];
 const $=id=>document.getElementById(id);
 async function get(u){const r=await fetch(u);return r.ok?await r.text():"";}
 async function status(){try{const s=JSON.parse(await get("/api/status"));
@@ -114,6 +120,10 @@ async function status(){try{const s=JSON.parse(await get("/api/status"));
 function table(rows){if(!rows.length)return "<div style='color:var(--mut)'>none yet</div>";
  const h=Object.keys(rows[0]);return "<div style='overflow:auto'><table><tr>"+h.map(x=>"<th>"+x+"</th>").join("")+"</tr>"+
  rows.map(r=>"<tr>"+h.map(x=>"<td>"+(r[x]??"")+"</td>").join("")+"</tr>").join("")+"</table></div>";}
+async function sentry(){try{const d=JSON.parse(await get("/api/sentry"));const s=d.status||{};
+ $("sen").textContent=s.state?("State: "+s.state+(s.reason?" ("+s.reason+")":"")+(s.voltage?" · 12V "+s.voltage+" V":"")+" · events this park: "+(s.events_this_session||0)):"Sentry not running";
+ const ims=[];(d.events||[]).forEach(e=>(e.files||"").split(" ").filter(Boolean).forEach(f=>ims.push([e.time,f])));
+ $("senimgs").innerHTML=ims.slice(0,8).map(([t,f])=>"<a href='/sentry/img?f="+f+"' target=_blank><img src='/sentry/img?f="+f+"' style='width:100%;border-radius:8px;border:1px solid var(--line)'><div style='font-size:11px;color:var(--mut)'>"+t+"</div></a>").join("")||"<div style='color:var(--mut)'>no events yet</div>";}catch(e){}}
 async function logs(){try{$("trips").innerHTML=table(JSON.parse(await get("/api/trips")));
  $("dis").innerHTML=table(JSON.parse(await get("/api/disengagements")));
 }catch(e){}}
@@ -125,7 +135,7 @@ async function editor(name){const box=$("editors");box.innerHTML="";
  b.onclick=async()=>{try{JSON.parse(ta.value)}catch(e){m.className="msg err";m.textContent="Invalid JSON: "+e.message;return}
   const r=await fetch("/api/config?name="+name,{method:"POST",body:ta.value});m.className="msg "+(r.ok?"ok":"err");m.textContent=await r.text();};}
 CFGS.forEach(n=>{const t=document.createElement("span");t.className="tab";t.dataset.n=n;t.textContent=n;t.onclick=()=>editor(n);$("tabs").appendChild(t)});
-editor("notify");status();logs();setInterval(status,2000);setInterval(logs,15000);
+editor("sentry");status();logs();sentry();setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
 </script></body></html>"""
 
 
@@ -154,6 +164,16 @@ class Handler(BaseHTTPRequestHandler):
       return self._json(telemetry.read_csv_tail(telemetry.TRIPS_CSV))
     if u.path == "/api/disengagements":
       return self._json(telemetry.read_csv_tail(telemetry.DISENGAGE_CSV))
+    if u.path == "/api/sentry":
+      status = telemetry.load_json(os.path.join(SENTRY_DIR, "status.json"))
+      return self._json({"status": status, "events": telemetry.read_csv_tail(os.path.join(SENTRY_DIR, "events.csv"), 12)})
+    if u.path == "/sentry/img":
+      name = (parse_qs(u.query).get("f") or [""])[0]
+      path = os.path.join(SENTRY_DIR, name)
+      if not SENTRY_IMG.match(name) or not os.path.isfile(path):
+        return self._send(404, "not found")
+      with open(path, "rb") as fh:
+        return self._send(200, fh.read(), "image/png")
     if u.path == "/api/config":
       name = (parse_qs(u.query).get("name") or [""])[0]
       if name not in CONFIGS:

@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy to /data/sunnypilot_sentry.json. Photos go to /data/sentry; notifications use sunnypilot_notify.json.",
+  "enabled": true,
+  "arm_delay_s": 120,
+  "cameras": ["road", "driver"],
+  "sensitivity": 0.015,
+  "cooldown_s": 60,
+  "max_hours": 12,
+  "min_voltage": 12.2,
+  "notify": true,
+  "max_notify_per_hour": 10,
+  "max_storage_mb": 500
+}
