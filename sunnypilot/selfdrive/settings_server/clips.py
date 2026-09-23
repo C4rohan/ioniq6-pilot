@@ -63,7 +63,12 @@ def enforce_cap(out_dir: str, max_bytes: int) -> None:
     shutil.rmtree(c, ignore_errors=True)
 
 
-def save_clip(root: str, out_dir: str, full_res: bool = False, max_storage_mb: int = 1000, setxattr=None) -> dict:
+REASONS = {"manual": "Saved from phone", "hard_brake": "Hard braking", "hard_takeover": "Hard steering takeover",
+           "unexpected_disengage": "Unexpected disengagement"}
+
+
+def save_clip(root: str, out_dir: str, full_res: bool = False, max_storage_mb: int = 1000, setxattr=None,
+              reason: str = "manual", detail: str = "") -> dict:
   segs = list_segments(root)
   if not segs:
     return {"ok": False, "error": "No dashcam segments found yet — drive first."}
@@ -80,7 +85,12 @@ def save_clip(root: str, out_dir: str, full_res: bool = False, max_storage_mb: i
     native = False
 
   clip = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}_{route.replace('--', '-')}"
+  base, n = clip, 1
   dest = os.path.join(out_dir, clip)
+  while os.path.exists(dest):
+    n += 1
+    clip = f"{base}-{n}"
+    dest = os.path.join(out_dir, clip)
   os.makedirs(dest, exist_ok=True)
   files = []
   wanted = ["qcamera.ts"] + (["fcamera.hevc"] if full_res else [])
@@ -92,6 +102,7 @@ def save_clip(root: str, out_dir: str, full_res: bool = False, max_storage_mb: i
         shutil.copyfile(src, os.path.join(dest, dst_name))
         files.append(dst_name)
   meta = {"ok": True, "clip": clip, "segments": names, "files": files, "native_preserve": native,
+          "reason": reason if reason in REASONS else "manual", "label": REASONS.get(reason, REASONS["manual"]), "detail": detail,
           "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
   with open(os.path.join(dest, "meta.json"), "w") as f:
     json.dump(meta, f, indent=2)

@@ -32,7 +32,7 @@ MASK = "••••••••"
 SECRET_KEYS = {"bot_token", "chat_id", "webhook_url"}
 DATA = telemetry.DATA
 SENTRY_DIR = os.path.join(DATA, "sentry")
-CLIPS_DIR = os.path.join(DATA, "saved_clips")
+CLIPS_DIR = telemetry.CLIPS_DIR
 SENTRY_IMG = re.compile(r"^[\w\-]+\.png$")
 
 # name -> (path, writable)
@@ -71,6 +71,8 @@ def unmask_secrets(new, existing):
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Ioniq 6 · sunnypilot</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
 :root{--bg:#0f1115;--card:#171a21;--line:#262b36;--txt:#e8eaf0;--mut:#8b93a7;--acc:#4f8cff;--ok:#34d399;--warn:#fbbf24;--bad:#f87171}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif}
@@ -108,6 +110,8 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div class="tabs" id="tabs"></div><div id="editors"></div></div>
 
 <div class="card"><h2>Steering feedback</h2><div id="sfv" style="margin-bottom:6px">loading…</div><div id="sfchart" style="overflow-x:auto"></div><div id="sfmeta" style="font-size:12px;color:var(--mut);margin-top:6px"></div></div>
+<div class="card"><h2>Model scorecard</h2><div id="scv" style="margin-bottom:8px">loading…</div><div id="sct"></div><div style="font-size:12px;color:var(--mut);margin-top:6px">Ranked by your takeovers per 100 km (fewer is better), then disengagements. A model needs 20 km of your driving before it is ranked.</div></div>
+<div class="card"><h2>Takeover map</h2><div id="map" style="height:320px;border-radius:10px;border:1px solid var(--line);background:#0b0d11"></div><div style="font-size:12px;color:var(--mut);margin-top:6px"><span style="color:#f5b841">●</span> too weak <span style="color:#f87171">●</span> too strong <span style="color:#8b93a7">●</span> straight <span style="color:#60a5fa">◆</span> disengagement · lines are your recent drives</div></div>
 <div class="card"><h2>Dashcam clips</h2><button id="savebtn">Save last 3 minutes</button><div id="savemsg" class="msg"></div><div id="clips" style="margin-top:8px"></div><div style="font-size:12px;color:var(--mut);margin-top:6px">Keeps the current minute and the 2 before it. Low-res road video (.ts) opens in VLC; full-quality footage stays on the device and in comma connect.</div></div>
 <div class="card"><h2>Sentry</h2><div id="sen" style="margin-bottom:8px;color:var(--mut)">loading…</div><div id="senimgs" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px"></div></div>
 <div class="card"><h2>Recent trips</h2><div id="trips">loading…</div></div>
@@ -141,7 +145,29 @@ function sfchart(b){const W=320,H=150,P=24,cols=["under","over","straight"],colr
 async function steer(){try{const d=JSON.parse(await get("/api/overrides"));const col={under:"#f5b841",over:"#f87171",ok:"#34d399",wait:"#8b93a7"}[d.level];
  $("sfv").innerHTML=`<b style="color:${col}">${d.verdict}</b>`;$("sfchart").innerHTML=sfchart(d.buckets);
  $("sfmeta").textContent=`${d.totals.under} too-weak · ${d.totals.over} too-strong · ${d.totals.straight} straight · ${d.lateral_km} km steered`+(d.per_100km!=null?` · ${d.per_100km} overrides/100 km`:"");}catch(e){}}
-async function clipsList(){try{const c=JSON.parse(await get("/api/clips"));$("clips").innerHTML=c.length?c.map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${x.time}</b> · ${x.segments.length} min${x.native_preserve?"":" (copy only)"}<br>`+x.files.map(f=>`<a style="color:var(--acc);font-size:13px" href="/clips/file?c=${x.clip}&f=${f}">${f}</a>`).join(" · ")+"</div>").join(""):"<div style='color:var(--mut)'>no saved clips yet</div>";}catch(e){}}
+async function scorecard(){try{const d=JSON.parse(await get("/api/scorecard"));$("scv").innerHTML="<b>"+d.verdict+"</b>";
+ $("sct").innerHTML=d.rows.length?"<div style='overflow:auto'><table><tr><th>model</th><th>km</th><th>takeovers /100 km</th><th>disengage /100 km</th><th>engaged</th><th>weak / strong</th></tr>"+
+  d.rows.map(r=>`<tr style="${r.model===d.best?"color:#34d399;font-weight:600":r.enough?"":"color:var(--mut)"}"><td>${r.model}${r.model===d.best?" ★":""}</td><td>${r.km}</td>`+
+  `<td>${r.ovr_per_100km??"–"}</td><td>${r.dis_per_100km??"–"}</td><td>${r.engaged_pct!=null?r.engaged_pct+"%":"–"}</td><td>${r.too_weak} / ${r.too_strong}</td></tr>`).join("")+"</table></div>":"";}catch(e){}}
+let MAP=null,LAYER=null,LASTN=-1;
+async function takeoverMap(){try{const d=JSON.parse(await get("/api/map"));const el=$("map");const col={under:"#f5b841",over:"#f87171",straight:"#8b93a7"};
+ const all=[...d.overrides.map(p=>[p.lat,p.lon]),...d.disengagements.map(p=>[p.lat,p.lon]),...d.tracks.flat()];
+ if(!all.length){el.innerHTML="<div style='padding:14px;color:var(--mut)'>No GPS points yet — drive with openpilot steering.</div>";return;}
+ if(window.L){const first=!MAP;if(first){MAP=L.map(el);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(MAP);}
+  if(LAYER)LAYER.remove();LAYER=L.layerGroup().addTo(MAP);
+  d.tracks.forEach(t=>L.polyline(t,{color:"#4f8cff",weight:3,opacity:.5}).addTo(LAYER));
+  d.disengagements.forEach(p=>L.circleMarker([p.lat,p.lon],{radius:5,color:"#60a5fa",fillOpacity:.9}).bindPopup(`Disengaged · ${p.kph} km/h<br>${p.time}`).addTo(LAYER));
+  d.overrides.forEach(p=>L.circleMarker([p.lat,p.lon],{radius:7,color:col[p.kind]||"#fff",fillColor:col[p.kind]||"#fff",fillOpacity:.85,weight:2})
+   .bindPopup(`${p.kind==="under"?"Too weak":p.kind==="over"?"Too strong":"Straight"} · ${p.kph} km/h · ${p.lat_accel} m/s²<br>${p.time}`).addTo(LAYER));
+  if(first||all.length!==LASTN){LASTN=all.length;const fit=()=>{MAP.invalidateSize();MAP.fitBounds(L.latLngBounds(all).pad(0.15));};
+   fit();setTimeout(fit,300);}}   // fit on first load / new data only, so a refresh never undoes your zoom
+ else{const la=all.map(p=>p[0]),lo=all.map(p=>p[1]);const a=Math.min(...la),b=Math.max(...la),c=Math.min(...lo),e=Math.max(...lo);
+  const W=320,H=300,x=v=>12+(v-c)/((e-c)||1e-9)*(W-24),y=v=>H-12-(v-a)/((b-a)||1e-9)*(H-24);let g="";
+  d.tracks.forEach(t=>g+=`<polyline fill="none" stroke="#4f8cff" stroke-opacity=".5" stroke-width="2" points="${t.map(p=>x(p[1])+","+y(p[0])).join(" ")}"/>`);
+  d.overrides.forEach(p=>g+=`<circle cx="${x(p.lon)}" cy="${y(p.lat)}" r="5" fill="${col[p.kind]||"#fff"}"/>`);
+  d.disengagements.forEach(p=>g+=`<rect x="${x(p.lon)-4}" y="${y(p.lat)-4}" width="8" height="8" fill="#60a5fa" transform="rotate(45 ${x(p.lon)} ${y(p.lat)})"/>`);
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%">${g}</svg><div style="font-size:11px;color:var(--mut);padding:4px">Offline: no basemap</div>`;}}catch(e){console.error("takeover map",e)}}
+async function clipsList(){try{const c=JSON.parse(await get("/api/clips"));$("clips").innerHTML=c.length?c.map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${x.time}</b> · ${x.label||"Saved"}${x.detail?" ("+x.detail+")":""} · ${x.segments.length} min${x.native_preserve?"":" (copy only)"}<br>`+x.files.map(f=>`<a style="color:var(--acc);font-size:13px" href="/clips/file?c=${x.clip}&f=${f}">${f}</a>`).join(" · ")+"</div>").join(""):"<div style='color:var(--mut)'>no saved clips yet</div>";}catch(e){}}
 async function logs(){try{$("trips").innerHTML=table(JSON.parse(await get("/api/trips")));
  $("dis").innerHTML=table(JSON.parse(await get("/api/disengagements")));
 }catch(e){}}
@@ -155,7 +181,7 @@ async function editor(name){const box=$("editors");box.innerHTML="";
 CFGS.forEach(n=>{const t=document.createElement("span");t.className="tab";t.dataset.n=n;t.textContent=n;t.onclick=()=>editor(n);$("tabs").appendChild(t)});
 $("savebtn").onclick=async()=>{$("savemsg").className="msg";$("savemsg").textContent="Saving…";try{const r=await fetch("/api/clip",{method:"POST"});const d=await r.json();
  $("savemsg").className="msg "+(d.ok?"ok":"err");$("savemsg").textContent=d.ok?`Saved ${d.segments.length} min (${d.files.length} files)`:d.error;clipsList();}catch(e){$("savemsg").className="msg err";$("savemsg").textContent="Save failed";}};
-editor("sentry");status();logs();sentry();steer();clipsList();setInterval(steer,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
+editor("sentry");status();logs();sentry();steer();clipsList();scorecard();takeoverMap();setInterval(steer,30000);setInterval(scorecard,60000);setInterval(takeoverMap,60000);setInterval(clipsList,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
 </script></body></html>"""
 
 
@@ -189,6 +215,12 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(TELEMETRY.overrides_summary())
       lat_km = float(telemetry.load_json(telemetry.STEER_STATS).get("lateral_km", 0.0) or 0.0)
       return self._json(telemetry.summarize_overrides(telemetry.read_csv_all(telemetry.OVERRIDES_CSV), lat_km))
+    if u.path == "/api/scorecard":
+      return self._json(TELEMETRY.scorecard() if TELEMETRY else telemetry.model_scorecard(
+        telemetry.read_csv_all(telemetry.TRIPS_CSV), telemetry.read_csv_all(telemetry.OVERRIDES_CSV)))
+    if u.path == "/api/map":
+      return self._json(TELEMETRY.map() if TELEMETRY else telemetry.map_data(telemetry.read_csv_all(telemetry.OVERRIDES_CSV),
+        telemetry.read_csv_all(telemetry.DISENGAGE_CSV), telemetry.read_csv_all(telemetry.TRACK_CSV)))
     if u.path == "/api/clips":
       return self._json(clips.list_clips(CLIPS_DIR))
     if u.path == "/clips/file":
@@ -242,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
       try:
         from openpilot.system.hardware.hw import Paths
         cfg = telemetry.load_json(CONFIGS["clips"][0])
-        res = clips.save_clip(Paths.log_root(), CLIPS_DIR, bool(cfg.get("full_res", False)), int(cfg.get("max_storage_mb", 1000)))
+        res = clips.save_clip(Paths.log_root(), CLIPS_DIR, bool(cfg.get("full_res", False)), int(cfg.get("max_storage_mb", 1000)), reason="manual")
         return self._json(res, 200 if res.get("ok") else 409)
       except Exception as e:
         return self._json({"ok": False, "error": f"save failed: {e}"}, 500)

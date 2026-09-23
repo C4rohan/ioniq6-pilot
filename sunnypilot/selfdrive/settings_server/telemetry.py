@@ -12,8 +12,12 @@ steering, it records speed and curve context and classifies the override:
   straight on a straight / gentle road  -> lane position preference, not tune strength
 It's a heuristic: a trend over many overrides is meaningful, a single one isn't.
 
+Also: GPS position on each takeover/disengagement and a sparse drive track (for the takeover map),
+a per-model scorecard, and auto-saved dashcam clips after hard braking, hard steering takeovers, or
+unexpected disengagements.
+
 Files (under /data, never in the repo):
-  sp_trips.csv, sp_disengagements.csv, sp_overrides.csv, sp_steer_stats.json
+  sp_trips.csv, sp_disengagements.csv, sp_overrides.csv, sp_track.csv, sp_steer_stats.json
   sunnypilot_notify.json, sunnypilot_steer_feedback.json (optional)
 """
 import csv
@@ -31,8 +35,11 @@ OVERRIDES_CSV = os.path.join(DATA, "sp_overrides.csv")
 STEER_STATS = os.path.join(DATA, "sp_steer_stats.json")
 NOTIFY_CONFIG = os.path.join(DATA, "sunnypilot_notify.json")
 STEER_CONFIG = os.path.join(DATA, "sunnypilot_steer_feedback.json")
+TRACK_CSV = os.path.join(DATA, "sp_track.csv")
+CLIPS_CONFIG = os.path.join(DATA, "sunnypilot_clips.json")
+CLIPS_DIR = os.path.join(DATA, "saved_clips")
 
-LOOP_HZ = 5
+LOOP_HZ = 10
 CONFIG_PERIOD = 5.0
 STATS_PERIOD = 60.0
 MIN_TRIP_M = 200.0
@@ -40,8 +47,16 @@ MPS_TO_KPH = 3.6
 OVERRIDE_DEBOUNCE_S = 2.0
 
 TRIP_FIELDS = ["start", "end", "minutes", "km", "max_kph", "engaged_pct", "disengagements", "model"]
-DIS_FIELDS = ["time", "kph", "gas", "brake", "steer", "standstill", "trip_km"]
-OVR_FIELDS = ["time", "kph", "kind", "lat_accel", "desired_curv", "actual_curv", "torque", "model"]
+DIS_FIELDS = ["time", "kph", "gas", "brake", "steer", "standstill", "trip_km", "lat", "lon", "model"]
+OVR_FIELDS = ["time", "kph", "kind", "lat_accel", "desired_curv", "actual_curv", "torque", "model", "lat", "lon"]
+TRACK_FIELDS = ["trip", "time", "lat", "lon", "kph"]
+TRACK_PERIOD_S = 15.0
+TRACK_KEEP_TRIPS = 30
+
+CLIPS_DEFAULTS = {"auto_save": True, "auto_brake_mps2": -4.0, "auto_takeover_lat": 1.5, "auto_takeover_kph": 50,
+                  "auto_disengage_kph": 40, "auto_delay_s": 20, "auto_min_gap_s": 60, "auto_max_per_day": 20,
+                  "notify_clips": True, "full_res": False, "max_storage_mb": 1000}
+SCORECARD_MIN_KM = 20.0
 
 STEER_DEFAULTS = {"min_speed_kph": 30, "straight_lat_accel": 0.3, "invert_sign": False}
 SPEED_BUCKETS = [(0, 40, "<40"), (40, 70, "40–70"), (70, 100, "70–100"), (100, 1000, "100+")]
@@ -66,9 +81,21 @@ def write_json_atomic(path, obj) -> None:
 
 
 def append_csv(path, fields, row) -> None:
+  """Append a row; if the file was written with older columns, migrate it in place first."""
+  if os.path.exists(path):
+    with open(path, newline="") as f:
+      header = next(csv.reader(f), [])
+    if header != fields:
+      old = read_csv_all(path)
+      with open(path + ".tmp", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        w.writeheader()
+        for r in old:
+          w.writerow({k: r.get(k, "") for k in fields})
+      os.replace(path + ".tmp", path)
   new = not os.path.exists(path)
   with open(path, "a", newline="") as f:
-    w = csv.DictWriter(f, fieldnames=fields)
+    w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
     if new:
       w.writeheader()
     w.writerow(row)
@@ -106,6 +133,16 @@ def steer_config() -> dict:
   user = load_json(STEER_CONFIG)
   if isinstance(user, dict):
     for k in STEER_DEFAULTS:
+      if k in user:
+        cfg[k] = user[k]
+  return cfg
+
+
+def clips_config() -> dict:
+  cfg = dict(CLIPS_DEFAULTS)
+  user = load_json(CLIPS_CONFIG)
+  if isinstance(user, dict):
+    for k in CLIPS_DEFAULTS:
       if k in user:
         cfg[k] = user[k]
   return cfg
@@ -157,6 +194,69 @@ def summarize_overrides(rows: list[dict], lat_km: float) -> dict:
   return {"buckets": [{"speed": k, **v} for k, v in buckets.items()], "totals": totals,
           "curve_events": n_curve, "verdict": verdict, "level": level,
           "lateral_km": round(lat_km, 1), "per_100km": per100}
+
+
+def _f(x, default=0.0):
+  try:
+    return float(x)
+  except (TypeError, ValueError):
+    return default
+
+
+def model_scorecard(trips: list[dict], overrides: list[dict], min_km: float = SCORECARD_MIN_KM) -> dict:
+  """Per driving model: km, engaged %, disengagements and takeovers per 100 km. Lower takeovers = better."""
+  models: dict = {}
+  def slot(m):
+    return models.setdefault(m or "?", {"trips": 0, "km": 0.0, "minutes": 0.0, "eng_min": 0.0, "dis": 0,
+                                        "under": 0, "over": 0, "straight": 0})
+  for t in trips:
+    d = slot(t.get("model"))
+    mins = _f(t.get("minutes"))
+    d["trips"] += 1
+    d["km"] += _f(t.get("km"))
+    d["minutes"] += mins
+    d["eng_min"] += mins * _f(t.get("engaged_pct")) / 100.0
+    d["dis"] += int(_f(t.get("disengagements")))
+  for o in overrides:
+    if o.get("kind") in ("under", "over", "straight"):
+      slot(o.get("model"))[o["kind"]] += 1
+  rows = []
+  for m, d in models.items():
+    km, ovr = d["km"], d["under"] + d["over"] + d["straight"]
+    rows.append({"model": m, "trips": d["trips"], "km": round(km, 1),
+                 "engaged_pct": round(100 * d["eng_min"] / d["minutes"]) if d["minutes"] > 0 else None,
+                 "dis_per_100km": round(d["dis"] / km * 100, 1) if km >= 1 else None,
+                 "ovr_per_100km": round(ovr / km * 100, 1) if km >= 1 else None,
+                 "too_weak": d["under"], "too_strong": d["over"], "enough": km >= min_km})
+  ranked = sorted((r for r in rows if r["enough"]), key=lambda r: (r["ovr_per_100km"], r["dis_per_100km"]))
+  rest = sorted((r for r in rows if not r["enough"]), key=lambda r: -r["km"])
+  if len(ranked) >= 2:
+    verdict = f"{ranked[0]['model']} needs the fewest takeovers on your drives."
+  elif len(ranked) == 1:
+    verdict = f"Only {ranked[0]['model']} has enough data. Drive another model {min_km:.0f} km to compare."
+  else:
+    verdict = f"Drive at least {min_km:.0f} km on a model to score it."
+  return {"rows": ranked + rest, "best": ranked[0]["model"] if len(ranked) >= 2 else None,
+          "verdict": verdict, "min_km": min_km}
+
+
+def _ll(r):
+  lat, lon = _f(r.get("lat"), None), _f(r.get("lon"), None)
+  if lat is None or lon is None or (lat == 0.0 and lon == 0.0):
+    return None
+  return round(lat, 6), round(lon, 6)
+
+
+def map_data(overrides: list[dict], disengagements: list[dict], track: list[dict], n_trips: int = 10) -> dict:
+  pts = [{"lat": ll[0], "lon": ll[1], "kind": o.get("kind"), "kph": o.get("kph"), "time": o.get("time"),
+          "lat_accel": o.get("lat_accel")} for o in overrides if (ll := _ll(o))]
+  dis = [{"lat": ll[0], "lon": ll[1], "kph": d.get("kph"), "time": d.get("time")} for d in disengagements if (ll := _ll(d))]
+  trips: dict = {}
+  for r in track:
+    if (ll := _ll(r)):
+      trips.setdefault(r.get("trip", "?"), []).append([ll[0], ll[1]])
+  keep = list(trips)[-n_trips:]
+  return {"overrides": pts[-500:], "disengagements": dis[-300:], "tracks": [trips[k] for k in keep]}
 
 
 # --------------------------------------------------------------------------- trips
@@ -226,6 +326,16 @@ class Telemetry:
     self.notify_cfg, self.steer_cfg = {}, dict(STEER_DEFAULTS)
     self.cfg_read = self.stats_saved = 0.0
     self.lat_km = float(load_json(STEER_STATS).get("lateral_km", 0.0) or 0.0)
+    self.gps_service = "gpsLocation"
+    self.pos = None                  # (lat, lon) of the latest valid fix
+    self.last_track = 0.0
+    self.clips_cfg = dict(CLIPS_DEFAULTS)
+    self.pending_save = None         # (fire_at_wall, reason, detail)
+    self.last_auto_save = -1e9
+    self.auto_saves_day = (None, 0)
+    self.last_button_wall = -1e9
+    self.hard_brake_latched = False
+    self.saver = self._default_saver
 
   def _reload_configs(self, now):
     if now - self.cfg_read < CONFIG_PERIOD:
@@ -233,12 +343,45 @@ class Telemetry:
     self.cfg_read = now
     self.notify_cfg = load_json(NOTIFY_CONFIG)
     self.steer_cfg = steer_config()
+    self.clips_cfg = clips_config()
 
   def _save_stats(self):
     try:
       write_json_atomic(STEER_STATS, {"lateral_km": round(self.lat_km, 3), "updated": round(time.time())})
     except OSError:
       pass
+
+  def _default_saver(self, reason: str, detail: str) -> dict:
+    from openpilot.system.hardware.hw import Paths
+    from openpilot.sunnypilot.selfdrive.settings_server import clips
+    c = self.clips_cfg
+    return clips.save_clip(Paths.log_root(), CLIPS_DIR, bool(c["full_res"]), int(c["max_storage_mb"]), reason=reason, detail=detail)
+
+  def _request_save(self, reason: str, detail: str, wall: float) -> None:
+    c = self.clips_cfg
+    if not c["auto_save"] or self.pending_save is not None or wall - self.last_auto_save < float(c["auto_min_gap_s"]):
+      return
+    day = datetime.fromtimestamp(wall).strftime("%Y-%m-%d")
+    d, n = self.auto_saves_day
+    if d == day and n >= int(c["auto_max_per_day"]):
+      return
+    self.auto_saves_day = (day, (n if d == day else 0) + 1)
+    self.last_auto_save = wall
+    self.pending_save = (wall + float(c["auto_delay_s"]), reason, detail)   # wait so the clip includes the aftermath
+
+  def _fire_pending(self, wall: float, background: bool = True) -> None:
+    if self.pending_save is None or wall < self.pending_save[0]:
+      return
+    _, reason, detail = self.pending_save
+    self.pending_save = None
+    def run():
+      try:
+        res = self.saver(reason, detail)
+        if res.get("ok") and self.clips_cfg["notify_clips"]:
+          send_notification(f"🎞️ Saved a dashcam clip: {res.get('label', reason)} ({detail}).")
+      except Exception as e:
+        print(f"telemetry: auto-save failed: {e}", flush=True)
+    threading.Thread(target=run, daemon=True).start() if background else run()
 
   def step(self, sm, dt: float, now: float, wall: float) -> None:
     """One loop iteration; separated from run() so it can be tested with a fake SubMaster."""
@@ -247,6 +390,15 @@ class Telemetry:
     cs, ss, cc, ctl = sm["carState"], sm["selfdriveState"], sm["carControl"], sm["controlsState"]
     engaged, lat_active = bool(ss.enabled), bool(cc.latActive)
     v = float(cs.vEgo)
+    try:                      # real SubMaster has no __contains__; `in sm` would probe sm[0]
+      g = sm[self.gps_service]
+    except (KeyError, IndexError, TypeError):
+      g = None
+    if g is not None and bool(getattr(g, "hasFix", False)) and (abs(float(g.latitude)) > 0 or abs(float(g.longitude)) > 0):
+      self.pos = (float(g.latitude), float(g.longitude))
+    if len(getattr(cs, "buttonEvents", []) or []) > 0:
+      self.last_button_wall = wall
+    lat_s, lon_s = (round(self.pos[0], 6), round(self.pos[1], 6)) if self.pos else ("", "")
 
     if started and not self.prev_started:
       self.trip = Trip(wall)
@@ -257,6 +409,7 @@ class Telemetry:
           send_notification(self.trip.summary())
       self.trip = None
       self._save_stats()
+      self._trim_track()
     self.prev_started = started
     if self.trip:
       self.trip.update(v, engaged, dt, wall)
@@ -264,10 +417,14 @@ class Telemetry:
     if self.prev_engaged and not engaged and started:
       if self.trip:
         self.trip.disengagements += 1
+      driver_input = bool(cs.gasPressed) or bool(cs.brakePressed) or bool(cs.steeringPressed) or (wall - self.last_button_wall) < 2.0
+      if not driver_input and v * MPS_TO_KPH >= float(self.clips_cfg["auto_disengage_kph"]):
+        self._request_save("unexpected_disengage", f"{round(v * MPS_TO_KPH)} km/h", wall)
       append_csv(DISENGAGE_CSV, DIS_FIELDS, {
         "time": datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M:%S"), "kph": round(v * MPS_TO_KPH),
         "gas": int(bool(cs.gasPressed)), "brake": int(bool(cs.brakePressed)), "steer": int(bool(cs.steeringPressed)),
-        "standstill": int(bool(cs.standstill)), "trip_km": round(self.trip.dist_m / 1000.0, 2) if self.trip else 0})
+        "standstill": int(bool(cs.standstill)), "trip_km": round(self.trip.dist_m / 1000.0, 2) if self.trip else 0,
+        "lat": lat_s, "lon": lon_s, "model": self.trip.model if self.trip else active_model_name()})
     self.prev_engaged = engaged
 
     # steering-tune feedback
@@ -283,8 +440,28 @@ class Telemetry:
         "time": datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M:%S"), "kph": round(v * MPS_TO_KPH),
         "kind": kind, "lat_accel": round(lat, 3), "desired_curv": round(float(ctl.desiredCurvature), 6),
         "actual_curv": round(float(ctl.curvature), 6), "torque": round(float(cs.steeringTorque), 1),
-        "model": self.trip.model if self.trip else active_model_name()})
+        "model": self.trip.model if self.trip else active_model_name(), "lat": lat_s, "lon": lon_s})
+      if abs(lat) >= float(self.clips_cfg["auto_takeover_lat"]) and v * MPS_TO_KPH >= float(self.clips_cfg["auto_takeover_kph"]):
+        self._request_save("hard_takeover", f"{round(v * MPS_TO_KPH)} km/h, {abs(lat):.1f} m/s² curve", wall)
     self.prev_pressed = pressed
+
+    # hard braking (driver or car), latched until it eases off
+    a_ego = float(getattr(cs, "aEgo", 0.0))
+    if started and a_ego <= float(self.clips_cfg["auto_brake_mps2"]) and v * MPS_TO_KPH >= 20:
+      if not self.hard_brake_latched:
+        self.hard_brake_latched = True
+        self._request_save("hard_brake", f"{abs(a_ego):.1f} m/s² at {round(v * MPS_TO_KPH)} km/h", wall)
+    elif a_ego > float(self.clips_cfg["auto_brake_mps2"]) / 2:
+      self.hard_brake_latched = False
+
+    # sparse drive track for the map
+    if started and self.trip and self.pos and wall - self.last_track >= TRACK_PERIOD_S:
+      self.last_track = wall
+      append_csv(TRACK_CSV, TRACK_FIELDS, {"trip": datetime.fromtimestamp(self.trip.start).strftime("%Y%m%d-%H%M%S"),
+                                           "time": datetime.fromtimestamp(wall).strftime("%H:%M:%S"),
+                                           "lat": lat_s, "lon": lon_s, "kph": round(v * MPS_TO_KPH)})
+
+    self._fire_pending(wall)
     if now - self.stats_saved >= STATS_PERIOD:
       self.stats_saved = now
       self._save_stats()
@@ -296,17 +473,45 @@ class Telemetry:
                           "trip_engaged_pct": self.trip.row()["engaged_pct"] if self.trip else 0,
                           "updated": round(wall)})
 
+  def _trim_track(self) -> None:
+    rows = read_csv_all(TRACK_CSV)
+    trips = list(dict.fromkeys(r.get("trip") for r in rows))
+    if len(trips) <= TRACK_KEEP_TRIPS:
+      return
+    keep = set(trips[-TRACK_KEEP_TRIPS:])
+    with open(TRACK_CSV + ".tmp", "w", newline="") as f:
+      w = csv.DictWriter(f, fieldnames=TRACK_FIELDS, extrasaction="ignore")
+      w.writeheader()
+      for r in rows:
+        if r.get("trip") in keep:
+          w.writerow(r)
+    os.replace(TRACK_CSV + ".tmp", TRACK_CSV)
+
   def run(self):
     import cereal.messaging as messaging
-    sm = messaging.SubMaster(["deviceState", "carState", "selfdriveState", "carControl", "controlsState"])
-    dt = 1.0 / LOOP_HZ
+    try:
+      from openpilot.common.gps import get_gps_location_service
+      from openpilot.common.params import Params
+      self.gps_service = get_gps_location_service(Params())
+    except Exception:
+      self.gps_service = "gpsLocation"
+    sm = messaging.SubMaster(["deviceState", "carState", "selfdriveState", "carControl", "controlsState", self.gps_service])
+    # Measure real elapsed time: SubMaster.update() returns as soon as ANY message arrives
+    # (carState is 100 Hz), so a fixed dt would inflate trip time/distance ~20x.
+    period = 1.0 / LOOP_HZ
+    last = time.monotonic()
     while True:
+      t0 = time.monotonic()
       try:
-        sm.update(int(dt * 1000))
-        self.step(sm, dt, time.monotonic(), time.time())
+        sm.update(0)
+        now = time.monotonic()
+        dt = min(max(now - last, 0.0), 1.0)
+        last = now
+        self.step(sm, dt, now, time.time())
       except Exception as e:
         print(f"telemetry: loop error: {e}", flush=True)
         time.sleep(1.0)
+      time.sleep(max(0.0, period - (time.monotonic() - t0)))
 
   def snapshot(self) -> dict:
     with self.lock:
@@ -314,6 +519,12 @@ class Telemetry:
 
   def overrides_summary(self) -> dict:
     return summarize_overrides(read_csv_all(OVERRIDES_CSV), self.lat_km)
+
+  def scorecard(self) -> dict:
+    return model_scorecard(read_csv_all(TRIPS_CSV), read_csv_all(OVERRIDES_CSV))
+
+  def map(self) -> dict:
+    return map_data(read_csv_all(OVERRIDES_CSV), read_csv_all(DISENGAGE_CSV), read_csv_all(TRACK_CSV))
 
 
 def start() -> Telemetry:

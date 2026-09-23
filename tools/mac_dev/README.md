@@ -39,6 +39,7 @@ cd ~/openpilot-dev && PYTHONPATH=$PWD .venv/bin/python tools/mac_dev/fake_drive.
 #   --parked       car off / parked (tests sentry arming)
 #   --motion       move an object across the road camera (tests sentry detection)
 #   --overrides    take over the wheel every 5 s (tests steering-tune feedback)
+#   --hardbrake    brake hard for 1 s every 20 s (tests auto-save clips)
 ```
 
 Stop with Ctrl-C in each terminal (or `pkill -f selfdrive/ui/ui.py; pkill -f fake_drive.py`).
