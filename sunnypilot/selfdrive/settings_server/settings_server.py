@@ -25,19 +25,24 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.sunnypilot.selfdrive.settings_server import telemetry
+from openpilot.sunnypilot.selfdrive.settings_server import telemetry, clips
 
 PORT = 8088
 MASK = "••••••••"
 SECRET_KEYS = {"bot_token", "chat_id", "webhook_url"}
-SENTRY_DIR = "/data/sentry"
+DATA = telemetry.DATA
+SENTRY_DIR = os.path.join(DATA, "sentry")
+CLIPS_DIR = os.path.join(DATA, "saved_clips")
 SENTRY_IMG = re.compile(r"^[\w\-]+\.png$")
 
 # name -> (path, writable)
 CONFIGS = {
-  "notify":    ("/data/sunnypilot_notify.json", True),
-  "reverse_cam": ("/data/sunnypilot_reverse_cam.json", True),
-  "sentry":      ("/data/sunnypilot_sentry.json", True),
+  "notify":         (os.path.join(DATA, "sunnypilot_notify.json"), True),
+  "reverse_cam":    (os.path.join(DATA, "sunnypilot_reverse_cam.json"), True),
+  "sentry":         (os.path.join(DATA, "sunnypilot_sentry.json"), True),
+  "sound":          (os.path.join(DATA, "sunnypilot_sound.json"), True),
+  "steer_feedback": (os.path.join(DATA, "sunnypilot_steer_feedback.json"), True),
+  "clips":          (os.path.join(DATA, "sunnypilot_clips.json"), True),
 }
 
 TELEMETRY: telemetry.Telemetry | None = None
@@ -102,13 +107,15 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div class="card"><h2>Settings</h2>
 <div class="tabs" id="tabs"></div><div id="editors"></div></div>
 
+<div class="card"><h2>Steering feedback</h2><div id="sfv" style="margin-bottom:6px">loading…</div><div id="sfchart" style="overflow-x:auto"></div><div id="sfmeta" style="font-size:12px;color:var(--mut);margin-top:6px"></div></div>
+<div class="card"><h2>Dashcam clips</h2><button id="savebtn">Save last 3 minutes</button><div id="savemsg" class="msg"></div><div id="clips" style="margin-top:8px"></div><div style="font-size:12px;color:var(--mut);margin-top:6px">Keeps the current minute and the 2 before it. Low-res road video (.ts) opens in VLC; full-quality footage stays on the device and in comma connect.</div></div>
 <div class="card"><h2>Sentry</h2><div id="sen" style="margin-bottom:8px;color:var(--mut)">loading…</div><div id="senimgs" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px"></div></div>
 <div class="card"><h2>Recent trips</h2><div id="trips">loading…</div></div>
 <div class="card"><h2>Recent disengagements</h2><div id="dis">loading…</div></div>
 </main>
 <footer>LAN only · no login · secrets are masked (leave the dots to keep a saved key)</footer>
 <script>
-const CFGS=["sentry","notify","reverse_cam"];
+const CFGS=["sentry","sound","steer_feedback","clips","notify","reverse_cam"];
 const $=id=>document.getElementById(id);
 async function get(u){const r=await fetch(u);return r.ok?await r.text():"";}
 async function status(){try{const s=JSON.parse(await get("/api/status"));
@@ -124,6 +131,17 @@ async function sentry(){try{const d=JSON.parse(await get("/api/sentry"));const s
  $("sen").textContent=s.state?("State: "+s.state+(s.reason?" ("+s.reason+")":"")+(s.voltage?" · 12V "+s.voltage+" V":"")+" · events this park: "+(s.events_this_session||0)):"Sentry not running";
  const ims=[];(d.events||[]).forEach(e=>(e.files||"").split(" ").filter(Boolean).forEach(f=>ims.push([e.time,f])));
  $("senimgs").innerHTML=ims.slice(0,8).map(([t,f])=>"<a href='/sentry/img?f="+f+"' target=_blank><img src='/sentry/img?f="+f+"' style='width:100%;border-radius:8px;border:1px solid var(--line)'><div style='font-size:11px;color:var(--mut)'>"+t+"</div></a>").join("")||"<div style='color:var(--mut)'>no events yet</div>";}catch(e){}}
+function sfchart(b){const W=320,H=150,P=24,cols=["under","over","straight"],colr={under:"#f5b841",over:"#f87171",straight:"#6b7489"};
+ const mx=Math.max(1,...b.map(x=>x.under+x.over+x.straight));const bw=(W-P*2)/b.length;let g="";
+ b.forEach((x,i)=>{let y=H-P;const xx=P+i*bw+bw*0.18,w=bw*0.64;cols.forEach(c=>{const h=(x[c]/mx)*(H-P*2);if(h>0){y-=h;g+=`<rect x="${xx}" y="${y}" width="${w}" height="${h}" fill="${colr[c]}" rx="2"/>`;}});
+  const tot=x.under+x.over+x.straight;g+=`<text x="${xx+w/2}" y="${y-4}" fill="#c8cfe0" font-size="10" text-anchor="middle">${tot||""}</text>`;
+  g+=`<text x="${xx+w/2}" y="${H-8}" fill="#8b93a7" font-size="10" text-anchor="middle">${x.speed}</text>`;});
+ const leg=cols.map((c,i)=>`<rect x="${P+i*96}" y="4" width="10" height="10" fill="${colr[c]}" rx="2"/><text x="${P+i*96+14}" y="13" fill="#c8cfe0" font-size="11">${c==="under"?"too weak":c==="over"?"too strong":"straight"}</text>`).join("");
+ return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:520px" role="img" aria-label="overrides by speed">${leg}<line x1="${P}" y1="${H-P}" x2="${W-P}" y2="${H-P}" stroke="#262b36"/>${g}</svg>`;}
+async function steer(){try{const d=JSON.parse(await get("/api/overrides"));const col={under:"#f5b841",over:"#f87171",ok:"#34d399",wait:"#8b93a7"}[d.level];
+ $("sfv").innerHTML=`<b style="color:${col}">${d.verdict}</b>`;$("sfchart").innerHTML=sfchart(d.buckets);
+ $("sfmeta").textContent=`${d.totals.under} too-weak · ${d.totals.over} too-strong · ${d.totals.straight} straight · ${d.lateral_km} km steered`+(d.per_100km!=null?` · ${d.per_100km} overrides/100 km`:"");}catch(e){}}
+async function clipsList(){try{const c=JSON.parse(await get("/api/clips"));$("clips").innerHTML=c.length?c.map(x=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${x.time}</b> · ${x.segments.length} min${x.native_preserve?"":" (copy only)"}<br>`+x.files.map(f=>`<a style="color:var(--acc);font-size:13px" href="/clips/file?c=${x.clip}&f=${f}">${f}</a>`).join(" · ")+"</div>").join(""):"<div style='color:var(--mut)'>no saved clips yet</div>";}catch(e){}}
 async function logs(){try{$("trips").innerHTML=table(JSON.parse(await get("/api/trips")));
  $("dis").innerHTML=table(JSON.parse(await get("/api/disengagements")));
 }catch(e){}}
@@ -135,7 +153,9 @@ async function editor(name){const box=$("editors");box.innerHTML="";
  b.onclick=async()=>{try{JSON.parse(ta.value)}catch(e){m.className="msg err";m.textContent="Invalid JSON: "+e.message;return}
   const r=await fetch("/api/config?name="+name,{method:"POST",body:ta.value});m.className="msg "+(r.ok?"ok":"err");m.textContent=await r.text();};}
 CFGS.forEach(n=>{const t=document.createElement("span");t.className="tab";t.dataset.n=n;t.textContent=n;t.onclick=()=>editor(n);$("tabs").appendChild(t)});
-editor("sentry");status();logs();sentry();setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
+$("savebtn").onclick=async()=>{$("savemsg").className="msg";$("savemsg").textContent="Saving…";try{const r=await fetch("/api/clip",{method:"POST"});const d=await r.json();
+ $("savemsg").className="msg "+(d.ok?"ok":"err");$("savemsg").textContent=d.ok?`Saved ${d.segments.length} min (${d.files.length} files)`:d.error;clipsList();}catch(e){$("savemsg").className="msg err";$("savemsg").textContent="Save failed";}};
+editor("sentry");status();logs();sentry();steer();clipsList();setInterval(steer,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
 </script></body></html>"""
 
 
@@ -164,6 +184,28 @@ class Handler(BaseHTTPRequestHandler):
       return self._json(telemetry.read_csv_tail(telemetry.TRIPS_CSV))
     if u.path == "/api/disengagements":
       return self._json(telemetry.read_csv_tail(telemetry.DISENGAGE_CSV))
+    if u.path == "/api/overrides":
+      if TELEMETRY:
+        return self._json(TELEMETRY.overrides_summary())
+      lat_km = float(telemetry.load_json(telemetry.STEER_STATS).get("lateral_km", 0.0) or 0.0)
+      return self._json(telemetry.summarize_overrides(telemetry.read_csv_all(telemetry.OVERRIDES_CSV), lat_km))
+    if u.path == "/api/clips":
+      return self._json(clips.list_clips(CLIPS_DIR))
+    if u.path == "/clips/file":
+      q = parse_qs(u.query)
+      c, fn = (q.get("c") or [""])[0], (q.get("f") or [""])[0]
+      path = os.path.join(CLIPS_DIR, c, fn)
+      if not clips.CLIP_RE.match(c) or not clips.FILE_RE.match(fn) or not os.path.isfile(path):
+        return self._send(404, "not found")
+      with open(path, "rb") as fh:
+        data = fh.read()
+      self.send_response(200)
+      self.send_header("Content-Type", "video/mp2t" if fn.endswith(".ts") else "application/octet-stream")
+      self.send_header("Content-Disposition", f'attachment; filename="{c}_{fn}"')
+      self.send_header("Content-Length", str(len(data)))
+      self.end_headers()
+      self.wfile.write(data)
+      return
     if u.path == "/api/sentry":
       status = telemetry.load_json(os.path.join(SENTRY_DIR, "status.json"))
       return self._json({"status": status, "events": telemetry.read_csv_tail(os.path.join(SENTRY_DIR, "events.csv"), 12)})
@@ -196,6 +238,14 @@ class Handler(BaseHTTPRequestHandler):
 
   def do_POST(self):
     u = urlparse(self.path)
+    if u.path == "/api/clip":
+      try:
+        from openpilot.system.hardware.hw import Paths
+        cfg = telemetry.load_json(CONFIGS["clips"][0])
+        res = clips.save_clip(Paths.log_root(), CLIPS_DIR, bool(cfg.get("full_res", False)), int(cfg.get("max_storage_mb", 1000)))
+        return self._json(res, 200 if res.get("ok") else 409)
+      except Exception as e:
+        return self._json({"ok": False, "error": f"save failed: {e}"}, 500)
     if u.path != "/api/config":
       return self._send(404, "not found")
     name = (parse_qs(u.query).get("name") or [""])[0]

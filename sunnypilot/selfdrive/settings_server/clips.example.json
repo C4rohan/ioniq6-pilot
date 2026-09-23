@@ -1,0 +1,2 @@
+{ "_comment": "Optional: /data/sunnypilot_clips.json. full_res also copies fcamera.hevc (~50-70 MB per minute).",
+  "full_res": false, "max_storage_mb": 1000 }

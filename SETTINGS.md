@@ -9,6 +9,9 @@ writes files** — nothing here controls the car (openpilot only steers on this 
 | File | Feature | Fields |
 |---|---|---|
 | `/data/sunnypilot_sentry.json` | Sentry mode | `enabled`, `arm_delay_s`, `cameras` (`road`/`driver`), `sensitivity`, `cooldown_s`, `max_hours`, `min_voltage`, `notify`, `max_notify_per_hour`, `max_storage_mb` |
+| `/data/sunnypilot_sound.json` | Alert volume | `enabled`, `volume` (0.1–1.0) |
+| `/data/sunnypilot_steer_feedback.json` | Steering-tune feedback (optional) | `min_speed_kph`, `straight_lat_accel`, `invert_sign` |
+| `/data/sunnypilot_clips.json` | Save clip (optional) | `full_res`, `max_storage_mb` |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
 | `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips` |
 
@@ -31,6 +34,27 @@ the process manager start **only the cameras** while sentry is armed.
   is overheated. Keep `max_hours` at or below the device's *Max Time Offroad*.
 - **Limits:** no night illumination while parked, so dark scenes show little. Recording people near your car is
   regulated in some places — check your local rules.
+
+## Steering-tune feedback
+
+Nothing to enable — it logs whenever the phone page is running. Each takeover while openpilot is steering is
+classified *too weak* (you steered into the curve), *too strong* (against it), or *straight*. After 10 curve
+takeovers the phone page gives a verdict. Read it as a trend over several drives, and compare with NNLC on vs off
+(with NNLC on, it reflects the neural model; off, the torque tune). If the verdict feels backwards on your car,
+set `invert_sign: true`.
+
+## Alert volume
+
+`volume: 0.5` halves chimes and prompts. It stacks with the automatic ambient-noise volume, and it cannot make
+the critical warnings quieter. For silence instead, use sunnypilot's own **Quiet Mode** toggle.
+
+## Save clip
+
+Tap **Save last 3 minutes** on the phone page (best for a passenger, or right after you've parked). It keeps the
+current minute and the 2 before it: full-quality footage stays on the device, and the low-res road video is copied
+to `/data/saved_clips` for download (opens in VLC). The device's own on-screen bookmark button does the native half
+of this too. Only the 5 most recent bookmarks are protected by the device; the saved copies are kept until
+`max_storage_mb`.
 
 ## Reverse camera view
 

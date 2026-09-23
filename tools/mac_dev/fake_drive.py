@@ -63,6 +63,7 @@ def main():
   ap = argparse.ArgumentParser(); ap.add_argument("--kph", type=float, default=100.0); ap.add_argument("--no-engage", action="store_true"); ap.add_argument("--reverse", action="store_true", help="simulate gear in reverse (tests the reverse camera view)")
   ap.add_argument("--parked", action="store_true", help="car off / parked (tests sentry arming)")
   ap.add_argument("--motion", action="store_true", help="move a bright object across the road camera (tests sentry detection)")
+  ap.add_argument("--overrides", action="store_true", help="take over the wheel every 5 s, into then against the curve (tests steering feedback)")
   a = ap.parse_args()
   Params().put_bool("IsMetric", True)
 
@@ -110,6 +111,9 @@ def main():
     cs = messaging.new_message("carState"); s = cs.carState
     s.vEgo = v; s.vEgoCluster = v; s.aEgo = 0.0; s.standstill = v < 0.1
     s.steeringAngleDeg = math.degrees(curv * 2.97 * 14.26); sset(s, vCruise=a.kph, vCruiseCluster=a.kph)
+    ovr_phase = int(t // 5); pressing = a.overrides and engaged and (t % 5) < 0.4
+    tq = (1 if curv >= 0 else -1) * (150 if ovr_phase % 3 else -150) if pressing else 0.0   # 2 of 3 into the curve, 1 against
+    sset(s, steeringPressed=pressing, steeringTorque=float(tq))
     sset(s.cruiseState, enabled=True, available=True, speed=v_set); sset(s, gearShifter=enum(car.CarState.GearShifter, "reverse" if a.reverse else "drive")); pm.send("carState", cs)
 
     ss = messaging.new_message("selfdriveState"); d = ss.selfdriveState

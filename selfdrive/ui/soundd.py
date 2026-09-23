@@ -15,6 +15,7 @@ from openpilot.system import micd
 from openpilot.system.hardware import HARDWARE
 
 from openpilot.sunnypilot.selfdrive.ui.quiet_mode import QuietMode
+from openpilot.sunnypilot.selfdrive.ui.sound_volume import UserVolume
 
 SAMPLE_RATE = 48000
 SAMPLE_BUFFER = 4096 # (approx 100ms)
@@ -80,6 +81,7 @@ class Soundd(QuietMode):
     self.load_sounds()
 
     self.current_alert = AudibleAlert.none
+    self.user_volume = UserVolume()  # Ioniq6: user scale for non-critical alerts
     self.current_volume = MIN_VOLUME
     self.current_sound_frame = 0
 
@@ -124,7 +126,7 @@ class Soundd(QuietMode):
         written_frames += frames_to_write
         self.current_sound_frame += frames_to_write
 
-    return ret * self.current_volume
+    return ret * self.current_volume * self.user_volume.factor(self.current_alert)
 
   def callback(self, data_out: np.ndarray, frames: int, time, status) -> None:
     if status:
@@ -176,6 +178,7 @@ class Soundd(QuietMode):
         sm.update(0)
 
         self.load_param()
+        self.user_volume.reload()
 
         # Always update volume, even when alert is playing
         if sm.updated['soundPressure']:
