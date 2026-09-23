@@ -25,12 +25,15 @@ Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6�
 | | Feature | What it does |
 |---|---|---|
 | 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder — smoother, more accurate lane centering. |
+| 🎯 | **Steering-tune feedback** | Every time you take over the wheel, it records speed and curve context and whether you steered *into* the bend (tune too weak) or *against* it (too strong). A chart and verdict on your phone tell you which way the tune leans. |
+| 🔉 | **Alert volume** | Turn down the chimes and prompts to your taste. Critical warnings always stay at full volume. |
+| 🎞️ | **Save clip** | One tap on your phone keeps the last 3 minutes of dashcam footage from being auto-deleted, and saves a copy you can download. |
 | 🅿️ | **Reverse camera view** | Shift to reverse and the screen shows a clean full-screen camera (driving overlays hidden) with a REVERSE badge — a parking aid using the forward camera. |
 | 🛡️ | **Sentry mode** | While parked, watches the road and cabin cameras; when something moves it saves photos and can send one to your phone. Stops itself on low 12V, overheating, or after a set time. |
 | 📊 | **Live dashboard** | Speed, engagement, model, and trip stats on your phone in real time. |
 | 🧾 | **Trip & disengagement logs** | Every drive and every disengagement, with context (speed, pedals), so you can review how it's doing. |
 | 💬 | **Notifications** | Drive summary to Telegram or any webhook the moment you park. |
-| 📱 | **Phone settings page** | Edit sentry, notification, and reverse-camera settings and browse sentry photos from a browser on the car's network. |
+| 📱 | **Phone settings page** | Everything above, from a browser on the car's network: settings, dashboard, steering chart, saved clips, and sentry photos. |
 
 Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral, NNLC, Auto Lane Change, and the driving-model selector. (Sunnypilot's speed features — Speed Limit Control, curve slowing — rely on longitudinal control this car doesn't expose, so they don't actuate here.)
 
@@ -48,7 +51,8 @@ Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral,
 
 - The custom steering tune and NNLC model are for the Ioniq 6's own platform (shared with the Ioniq 5).
 - Sentry only runs while parked, disarms at 12.2 V (above comma's own 11.8 V cutoff), pauses when overheated, and stops after 12 h by default.
-- Reverse view, sentry, dashboard, logs, and notifications **never touch control** — they only read state and write files/webhooks.
+- Alert volume can only make chimes quieter; warnings on sunnypilot's must-play list are never scaled down.
+- Steering feedback, clips, reverse view, sentry, dashboard, logs, and notifications **never touch control** — they only read state and write files/webhooks.
 - Secrets (bot tokens, webhook URLs) live only on the device and are masked on the phone page.
 
 ## 📚 Docs

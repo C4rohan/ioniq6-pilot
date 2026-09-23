@@ -1,0 +1,2 @@
+{ "_comment": "Copy to /data/sunnypilot_sound.json. volume 0.1-1.0 scales chimes/prompts only; critical warnings stay at full volume.",
+  "enabled": true, "volume": 0.5 }

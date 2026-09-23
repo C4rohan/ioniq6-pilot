@@ -1,0 +1,2 @@
+{ "_comment": "Optional: /data/sunnypilot_steer_feedback.json. Flip invert_sign only if verdicts feel backwards on your car.",
+  "min_speed_kph": 30, "straight_lat_accel": 0.3, "invert_sign": false }
