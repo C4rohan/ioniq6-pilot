@@ -29,7 +29,7 @@ Car: **Hyundai Ioniq 6 (2023–24, non-HDA-II / HDA)** · Device: **comma 3X** �
 | **Trip logger** | One row per drive: duration, km, max speed, engaged %, disengagements, model → `/data/sp_trips.csv` | with settings server |
 | **Disengagement logger** | Time, speed, gas/brake/steer pressed, standstill, trip km per disengagement → `/data/sp_disengagements.csv` | with settings server |
 | **Notifications** | Drive summary to Telegram or a generic webhook when you park | `/data/sunnypilot_notify.json` |
-| **Phone settings page** | Edit the notify + reverse-cam configs and view the dashboard/logs from a browser on the car LAN (`:8088`) | manual `process_config.py` edit |
+| **Phone settings page** | All settings, dashboard, logs, steering chart, scorecard, map, clips and sentry photos from a browser on the car LAN (`:8088`). Registered in the branch (survives updates) but idle until switched on | `touch /data/sunnypilot_settings_enabled` |
 
 The dashboard, logs, and notifications run inside the settings-server process and **never touch
 vehicle control** — they read state and write files/webhooks. All are off/idle until configured.
@@ -57,5 +57,8 @@ vehicle control** — they read state and write files/webhooks. All are off/idle
 - The branch auto-rebases onto the latest sunnypilot `release-tizi` weekly, replaying every
   custom patch; it fails safe on conflict.
 - After an update, **reinstall on the device**; your `/data` settings are preserved.
+- **Tests:** 55 tests sit next to the features (`*/tests/test_*.py` under `settings_server`, `sentry`,
+  `sunnypilot/selfdrive/ui` and `selfdrive/ui/sunnypilot/onroad`). Run them on a Mac dev setup with
+  `pytest sunnypilot/selfdrive/settings_server sunnypilot/selfdrive/sentry sunnypilot/selfdrive/ui selfdrive/ui/sunnypilot/onroad`.
 
 See [README](README.md) for install and [SETTINGS.md](SETTINGS.md) for the phone page.

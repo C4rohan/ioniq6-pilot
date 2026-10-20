@@ -312,8 +312,25 @@ def _serve():
       time.sleep(30)
 
 
+ENABLE_FILE = os.path.join(DATA, "sunnypilot_settings_enabled")
+ENABLE_CHECK_S = 10.0
+
+
+def enabled() -> bool:
+  return os.path.exists(ENABLE_FILE)
+
+
+def wait_until_enabled(check_s: float = ENABLE_CHECK_S, sleep=time.sleep) -> None:
+  """The process ships registered in the branch, so it must stay idle (no port, no telemetry)
+  until the owner opts in by creating the enable file on the device."""
+  while not enabled():
+    sleep(check_s)
+
+
 def main():
   global TELEMETRY
+  wait_until_enabled()
+  cloudlog.info("settings_server: enabled, starting")
   try:
     TELEMETRY = telemetry.start()
   except Exception as e:

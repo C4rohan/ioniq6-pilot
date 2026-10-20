@@ -169,6 +169,10 @@ procs = [
 
 # sunnypilot
 procs += [
+  # Ioniq6 build: phone page + telemetry (idle until /data/sunnypilot_settings_enabled exists) and sentry (off until enabled)
+  PythonProcess("sunnypilot_settings_server", "sunnypilot.selfdrive.settings_server.settings_server", always_run),
+  PythonProcess("sentryd", "sunnypilot.selfdrive.sentry.sentryd", always_run),
+
   # Models
   PythonProcess("models_manager", "sunnypilot.models.manager", only_offroad),
   NativeProcess("modeld_tinygrad", "sunnypilot/modeld_v2", ["./modeld"], and_(only_onroad, is_tinygrad_model)),
