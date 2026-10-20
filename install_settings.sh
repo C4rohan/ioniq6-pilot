@@ -5,7 +5,8 @@
 # 2) installs the sentry hook (cameras may run while parked ONLY when sentry is
 #    enabled and armed) and the sentry daemon; sentry itself stays OFF until you
 #    enable it on the phone page.
-# Re-run after a software update (updates replace process_config.py). Idempotent.
+# The phone page and sentry daemon ship in the branch and survive updates. Sentry's camera
+# rule is still applied here, so re-run this after a software update if you use sentry. Idempotent.
 set -e
 PC=/data/openpilot/system/manager/process_config.py
 
@@ -57,6 +58,9 @@ if s != orig:
 else:
     print("   already installed")
 PY
+
+touch /data/sunnypilot_settings_enabled
+echo "   phone page enabled (/data/sunnypilot_settings_enabled)"
 
 if [ ! -f /data/sunnypilot_sentry.json ]; then
   cat > /data/sunnypilot_sentry.json <<'JSON'

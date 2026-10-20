@@ -21,8 +21,9 @@ Templates ship in the repo next to each feature's code (`*.example.json`).
 
 ## Sentry mode
 
-Off until you set `enabled: true` (phone page → *sentry* tab). Needs the one-time `install_settings.sh`, which lets
-the process manager start **only the cameras** while sentry is armed.
+Off until you set `enabled: true` (phone page → *sentry* tab). It also needs `install_settings.sh`, which lets the
+process manager start **only the cameras** while sentry is armed. Updates replace the device's files, so **rerun the
+script after each update** if you use sentry (everything else survives updates).
 
 - **Arming:** 2 minutes after you park (`arm_delay_s`), so walking away isn't an event.
 - **Detection:** `sensitivity` is the fraction of the scene that must change (default 1.5%); lower = more sensitive.
@@ -83,23 +84,20 @@ WhatsApp gateway). Secrets stay on the device and are masked on the phone page.
 
 ## The phone page
 
-Off by default (running a network service on the car is a deliberate step). Enable it with one
-line in the sunnypilot process block of `system/manager/process_config.py`:
+The phone page ships with the branch, so it survives updates, but it stays **idle** (no network port,
+no logging) until you switch it on — running a network service on the car is a deliberate step. Switch it
+on once, over SSH:
 
-```python
-# sunnypilot
-procs += [
-  PythonProcess("sunnypilot_settings_server", "sunnypilot.selfdrive.settings_server.settings_server", always_run),
-  # Models
-  ...
+```
+touch /data/sunnypilot_settings_enabled
 ```
 
-Reboot, then browse to `http://<device-ip>:8088` from a phone on the same network (your phone's
+(`install_settings.sh` does this for you.) Within about 10 seconds, browse to `http://<device-ip>:8088` from a phone on the same network (your phone's
 hotspot works well). It shows the live dashboard, recent trips and disengagements, and the
 notify + reverse-cam settings.
 
-> ⚠️ **No login** — LAN only. Use it on a trusted network. Because this edits `process_config.py`,
-> it may need re-applying (or resolving in the weekly rebase) after an update.
+> ⚠️ **No login** — LAN only. Use it on a trusted network. To switch it off, delete
+> `/data/sunnypilot_settings_enabled` and reboot.
 
 ## Enabling / testing safely
 

@@ -45,7 +45,7 @@ Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral,
 
 1. **Install** — on the device choose *Custom Software* and enter `installer.comma.ai/C4rohan/ioniq6-tizi-custom`. (Already on the branch? *Settings → Software → Check for Update*.)
 2. **Toggle the sunnypilot basics** on the device: **MADS**, **NNLC**, **Auto Lane Change**.
-3. *(Optional)* **Phone page + sentry** — one-time SSH: `bash install_settings.sh` enables the settings server on **:8088**, installs the sentry hook (sentry stays off until you enable it), and reboots. Then, on your phone's hotspot, browse to `http://<device-ip>:8088` for the dashboard, sentry photos, logs, and settings.
+3. *(Optional)* **Phone page + sentry** — one-time SSH: `bash install_settings.sh`. It switches the phone page on (it stays on through updates) and installs sentry's camera rule (sentry stays off until you enable it), then reboots. Then, on your phone's hotspot, browse to `http://<device-ip>:8088` for the dashboard, sentry photos, logs, and settings. If you use sentry, rerun the script after each update — the camera rule is the one piece that doesn't survive an update.
 
 > ⚠️ Treat the first drive after any install or update as a **shakedown** — empty road, hands ready. This build carries a custom steering-torque tune.
 
