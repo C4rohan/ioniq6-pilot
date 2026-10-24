@@ -102,4 +102,4 @@ notify + reverse-cam settings.
 ## Enabling / testing safely
 
 Treat the first drive after any install or update as a shakedown — empty road, hands ready.
-This build carries a custom steering-torque tune. See [README](README.md) and [FEATURES.md](FEATURES.md).
+Steering uses the stock torque tune; NNLC (if you turn it on) uses the Ioniq 5 model. See [README](README.md) and [FEATURES.md](FEATURES.md).

@@ -24,7 +24,7 @@ Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6�
 
 | | Feature | What it does |
 |---|---|---|
-| 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder — smoother, more accurate lane centering. |
+| 🧠 | **Ioniq 6 NNLC model** | A dedicated neural steering model (the Ioniq 5's, same platform) so NNLC matches this car exactly. The torque tune is stock — live torque learning refines it as you drive. |
 | 🎯 | **Steering-tune feedback** | Every time you take over the wheel, it records speed and curve context and whether you steered *into* the bend (tune too weak) or *against* it (too strong). A chart and verdict on your phone tell you which way the tune leans. |
 | 🔉 | **Alert volume** | Turn down the chimes and prompts to your taste. Critical warnings always stay at full volume. |
 | 🎞️ | **Save clip + auto-save** | One tap on your phone keeps the last 3 minutes of dashcam footage and saves a copy you can download. It also saves automatically after hard braking, a hard steering takeover, or an unexpected disengagement. |
@@ -47,11 +47,11 @@ Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral,
 2. **Toggle the sunnypilot basics** on the device: **MADS**, **NNLC**, **Auto Lane Change**.
 3. *(Optional)* **Phone page + sentry** — one-time SSH: `bash install_settings.sh`. It switches the phone page on (it stays on through updates) and installs sentry's camera rule (sentry stays off until you enable it), then reboots. Then, on your phone's hotspot, browse to `http://<device-ip>:8088` for the dashboard, sentry photos, logs, and settings. If you use sentry, rerun the script after each update — the camera rule is the one piece that doesn't survive an update.
 
-> ⚠️ Treat the first drive after any install or update as a **shakedown** — empty road, hands ready. This build carries a custom steering-torque tune.
+> ⚠️ Treat the first drive after any install or update as a **shakedown** — empty road, hands ready. Steering uses the stock torque tune; turning on NNLC changes how it steers.
 
 ## 🛡️ How it stays safe
 
-- The custom steering tune and NNLC model are for the Ioniq 6's own platform (shared with the Ioniq 5).
+- The steering torque tune is stock openpilot/sunnypilot. The NNLC model is the Ioniq 5's (same platform) and only runs if you turn NNLC on.
 - Sentry only runs while parked, disarms at 12.2 V (above comma's own 11.8 V cutoff), pauses when overheated, and stops after 12 h by default.
 - Alert volume can only make chimes quieter; warnings on sunnypilot's must-play list are never scaled down.
 - Steering feedback, clips, reverse view, sentry, dashboard, logs, and notifications **never touch control** — they only read state and write files/webhooks.
