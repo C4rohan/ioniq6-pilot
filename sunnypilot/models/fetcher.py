@@ -11,7 +11,8 @@ import requests
 from requests.exceptions import (SSLError, RequestException, HTTPError)
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
-from openpilot.sunnypilot.models.helpers import is_bundle_version_compatible
+from openpilot.sunnypilot.models.helpers import get_active_bundle, is_bundle_version_compatible
+from openpilot.sunnypilot.models.model_filter import visible_bundles
 
 from cereal import custom
 
@@ -155,6 +156,10 @@ class ModelFetcher:
     return None
 
   def get_available_bundles(self) -> list[custom.ModelManagerSP.ModelBundle]:
+    # Ioniq6 build: hide old model folders (keeps the active model; see model_filter.py)
+    return visible_bundles(self._get_all_bundles(), get_active_bundle(self.params))
+
+  def _get_all_bundles(self) -> list[custom.ModelManagerSP.ModelBundle]:
     """Gets the list of available models, with smart cache handling"""
     cached_data, is_expired = self.model_cache.get()
 
