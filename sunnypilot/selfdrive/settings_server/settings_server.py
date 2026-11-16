@@ -43,6 +43,7 @@ CONFIGS = {
   "sound":          (os.path.join(DATA, "sunnypilot_sound.json"), True),
   "steer_feedback": (os.path.join(DATA, "sunnypilot_steer_feedback.json"), True),
   "clips":          (os.path.join(DATA, "sunnypilot_clips.json"), True),
+  "models":         (os.path.join(DATA, "sunnypilot_models.json"), True),
 }
 
 TELEMETRY: telemetry.Telemetry | None = None
@@ -119,7 +120,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 </main>
 <footer>LAN only · no login · secrets are masked (leave the dots to keep a saved key)</footer>
 <script>
-const CFGS=["sentry","sound","steer_feedback","clips","notify","reverse_cam"];
+const CFGS=["sentry","sound","steer_feedback","clips","notify","reverse_cam","models"];
 const $=id=>document.getElementById(id);
 async function get(u){const r=await fetch(u);return r.ok?await r.text():"";}
 async function status(){try{const s=JSON.parse(await get("/api/status"));

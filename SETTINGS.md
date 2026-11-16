@@ -12,6 +12,7 @@ writes files** — nothing here controls the car (openpilot only steers on this 
 | `/data/sunnypilot_sound.json` | Alert volume | `enabled`, `volume` (0.1–1.0) |
 | `/data/sunnypilot_steer_feedback.json` | Steering-tune feedback (optional) | `min_speed_kph`, `straight_lat_accel`, `invert_sign` |
 | `/data/sunnypilot_clips.json` | Save clip + auto-save (optional) | `full_res`, `max_storage_mb`, `auto_save`, `auto_brake_mps2`, `auto_takeover_lat`, `auto_takeover_kph`, `auto_disengage_kph`, `auto_delay_s`, `auto_min_gap_s`, `auto_max_per_day`, `notify_clips` |
+| `/data/sunnypilot_models.json` | Model selector cleanup (optional) | `hidden_folders` (list of folder names; `[]` shows every model) |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
 | `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips` |
 
@@ -70,6 +71,16 @@ Nothing to enable. The scorecard ranks a model once you've driven 20 km on it. T
 roads on each model. The map needs your phone's internet for the street basemap (your phone's hotspot works); without
 it you still get a plain plot of the points. Your drive track and takeover locations are location history stored only
 on the device (`sp_track.csv` keeps the last 30 drives).
+
+## Model selector cleanup
+
+sunnypilot's model list keeps every model it ever published. This build hides the older folders
+(Legacy, 2025 Pre World, 2025 World, Custom Merge), which takes the selector from 68 models to 29: the
+2026 World, Master and Release models. **The model you're using always stays in the list**, even if its
+folder is hidden. sunnypilot would otherwise reset you to the default model. To change what's hidden,
+edit the `models` tab on the phone page (or `/data/sunnypilot_models.json`), e.g. `{"hidden_folders": []}`
+to show everything. The change shows up within a second while the car is off.
+To free storage from models you downloaded before, use *Settings → Models → Clear Model Cache*.
 
 ## Reverse camera view
 
