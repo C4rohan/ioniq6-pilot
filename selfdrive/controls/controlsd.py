@@ -21,6 +21,7 @@ from openpilot.selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 
 from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
+from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering.runtime import LaneCenteringRuntime
 
 State = log.SelfdriveState.OpenpilotState
 LaneChangeState = log.LaneChangeState
@@ -50,6 +51,7 @@ class Controls(ControlsExt):
     self.steer_limited_by_safety = False
     self.curvature = 0.0
     self.desired_curvature = 0.0
+    self.lane_centering = LaneCenteringRuntime()  # Ioniq6 build: off unless /data/sunnypilot_lane_centering.json enables it
 
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
@@ -139,7 +141,14 @@ class Controls(ControlsExt):
       new_desired_curvature = self.sm['lateralManeuverPlan'].desiredCurvature if CC.latActive else self.curvature
     else:
       new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
-    self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
+    # Ioniq6 build: lane centering nudges the curvature before the normal limiter (see lane_centering/runtime.py)
+    lane_base_curvature = new_desired_curvature
+    new_desired_curvature = self.lane_centering.pre_limit(self.sm, CS, CC, model_v2, new_desired_curvature, self.curvature)
+    previous_curvature = self.desired_curvature
+    self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, previous_curvature, new_desired_curvature, lp.roll)
+    if self.lane_centering.correcting:
+      baseline_curvature, _ = clip_curvature(CS.vEgo, previous_curvature, lane_base_curvature, lp.roll)
+      self.desired_curvature = self.lane_centering.post_limit(model_v2, baseline_curvature, self.desired_curvature, self.curvature, CS.vEgo)
     lat_delay = self.sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 
     actuators.curvature = self.desired_curvature

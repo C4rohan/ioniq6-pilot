@@ -13,6 +13,7 @@ writes files** — nothing here controls the car (openpilot only steers on this 
 | `/data/sunnypilot_steer_feedback.json` | Steering-tune feedback (optional) | `min_speed_kph`, `straight_lat_accel`, `invert_sign` |
 | `/data/sunnypilot_clips.json` | Save clip + auto-save (optional) | `full_res`, `max_storage_mb`, `auto_save`, `auto_brake_mps2`, `auto_takeover_lat`, `auto_takeover_kph`, `auto_disengage_kph`, `auto_delay_s`, `auto_min_gap_s`, `auto_max_per_day`, `notify_clips` |
 | `/data/sunnypilot_models.json` | Model selector cleanup (optional) | `hidden_folders` (list of folder names; `[]` shows every model) |
+| `/data/sunnypilot_lane_centering.json` | Lane centering (off until enabled) | `enabled`, `offset_m`, `strength`, `pause_on_signal`, `e2e_authority` |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
 | `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips` |
 
@@ -81,6 +82,31 @@ folder is hidden. sunnypilot would otherwise reset you to the default model. To 
 edit the `models` tab on the phone page (or `/data/sunnypilot_models.json`), e.g. `{"hidden_folders": []}`
 to show everything. The change shows up within a second while the car is off.
 To free storage from models you downloaded before, use *Settings → Models → Clear Model Cache*.
+
+## Lane centering
+
+Ported from StarPilot. When both lane lines are clear, it nudges the car toward the middle of the
+lane. It only adds a small correction to the curvature the driving model asks for: at most
+0.0012 1/m, which is about 0.75 m/s² sideways at 90 km/h, and it builds up gently. The result
+still goes through openpilot's normal steering limits. It lets go when you signal, change lanes,
+or turn the wheel yourself, below 18 km/h, and whenever the lane lines are faint or the lane is
+an odd width. If one line is missing, it holds your spacing from the line it can see. **Off by
+default.** Turn it on from the `lane_centering` tab on the phone page:
+
+```json
+{"enabled": true}
+```
+
+| Key | Default | Range | What it does |
+|---|---|---|---|
+| `enabled` | `false` | | on/off; re-read once a second, so you can switch it during a drive |
+| `offset_m` | `0.0` | −0.3 to 0.3 | sit off-centre: **negative = further left**, positive = further right |
+| `strength` | `1.5` | 0.5 to 3.0 | how firmly it pulls back to the target |
+| `pause_on_signal` | `true` | | let go while a turn signal is on |
+| `e2e_authority` | `0.5` | 0 to 1 | how much a confident model path overrules the lane lines on big corrections |
+
+A missing, broken or out-of-range file means **off**. If lane centering ever hits an error, it
+switches itself off until the next drive, and the car keeps steering on the model as normal.
 
 ## Reverse camera view
 
