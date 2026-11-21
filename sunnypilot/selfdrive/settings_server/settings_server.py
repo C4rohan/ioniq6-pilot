@@ -50,6 +50,16 @@ CONFIGS = {
 TELEMETRY: telemetry.Telemetry | None = None
 
 
+def lane_centering_status() -> dict:
+  """One line for the Live status card, from the file controlsd writes to /dev/shm (lane_centering/status.py)."""
+  try:
+    from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering.status import read_status
+    return read_status(time.monotonic())
+  except Exception:
+    cloudlog.exception("lane centering status")
+    return {"state": "unknown", "level": "mut", "text": "unknown"}
+
+
 def mask_secrets(obj):
   if isinstance(obj, dict):
     return {k: (MASK if k in SECRET_KEYS and obj[k] else mask_secrets(v)) for k, v in obj.items()}
@@ -106,7 +116,8 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div class="stat"><span>Trip</span><b id="tripkm">0.0</b>km</div>
 <div class="stat"><span>Engaged (trip)</span><b id="tripeng">0</b>%</div>
 <div class="stat"><span>Model</span><b id="model" style="font-size:15px">?</b></div>
-</div></div>
+</div>
+<div style="margin-top:10px;font-size:14px"><span style="color:var(--mut)">Lane centering:</span> <span id="lc">—</span></div></div>
 
 <div class="card"><h2>Settings</h2>
 <div class="tabs" id="tabs"></div><div id="editors"></div></div>
@@ -129,6 +140,7 @@ async function status(){try{const s=JSON.parse(await get("/api/status"));
  $("engaged").className="pill "+(s.engaged?"on":"off");$("engaged").textContent=s.engaged?"engaged":"not engaged";
  $("kph").textContent=s.kph;$("tripkm").textContent=s.trip_km;
  $("tripeng").textContent=s.trip_engaged_pct;$("model").textContent=s.model;
+ const lc=s.lane_centering||{};$("lc").textContent=lc.text||"—";$("lc").style.color={on:"var(--ok)",warn:"var(--warn)",bad:"var(--bad)",mut:"var(--mut)"}[lc.level]||"";
  $("upd").textContent=s.updated?new Date(s.updated*1000).toLocaleTimeString():"—";}catch(e){}}
 function table(rows){if(!rows.length)return "<div style='color:var(--mut)'>none yet</div>";
  const h=Object.keys(rows[0]);return "<div style='overflow:auto'><table><tr>"+h.map(x=>"<th>"+x+"</th>").join("")+"</tr>"+
@@ -207,7 +219,7 @@ class Handler(BaseHTTPRequestHandler):
     if u.path == "/":
       return self._send(200, PAGE, "text/html; charset=utf-8")
     if u.path == "/api/status":
-      return self._json(TELEMETRY.snapshot() if TELEMETRY else {})
+      return self._json({**(TELEMETRY.snapshot() if TELEMETRY else {}), "lane_centering": lane_centering_status()})
     if u.path == "/api/trips":
       return self._json(telemetry.read_csv_tail(telemetry.TRIPS_CSV))
     if u.path == "/api/disengagements":

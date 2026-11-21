@@ -21,6 +21,7 @@ from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering.lane_centering i
   ControlMode, LaneCenteringController, LaneCenteringInput, LaneCenteringResult, LaneCenteringSettings,
   STRENGTH_BASELINE, STRENGTH_MAX,
 )
+from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering.status import StatusWriter
 
 DATA = os.environ.get("SUNNYPILOT_DATA", "/data")
 CONFIG = os.path.join(DATA, "sunnypilot_lane_centering.json")
@@ -35,6 +36,25 @@ LIMITS = {
 }
 
 
+def validate(cfg) -> LaneCenteringSettings | None:
+  """Settings from a parsed config, or None if anything is the wrong type or out of range."""
+  if not isinstance(cfg, dict):
+    return None
+  values = {}
+  for key, (default, lo, hi) in LIMITS.items():
+    v = cfg.get(key, default)
+    if lo is None:
+      if type(v) is not bool:
+        return None
+    else:
+      if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not lo <= v <= hi:
+        return None
+      v = float(v)
+    values[key] = v
+  return LaneCenteringSettings(enabled=values["enabled"], offset_m=values["offset_m"], e2e_authority=values["e2e_authority"],
+                               pause_on_signal=values["pause_on_signal"], strength=values["strength"])
+
+
 def read_settings(path: str | None = None) -> LaneCenteringSettings:
   """Anything missing, unreadable, or out of range means OFF: a bad file must never steer."""
   try:
@@ -45,21 +65,7 @@ def read_settings(path: str | None = None) -> LaneCenteringSettings:
   except Exception:
     cloudlog.warning("lane centering: unreadable config, staying off")
     return LaneCenteringSettings()
-  if not isinstance(cfg, dict):
-    return LaneCenteringSettings()
-  values = {}
-  for key, (default, lo, hi) in LIMITS.items():
-    v = cfg.get(key, default)
-    if lo is None:
-      if type(v) is not bool:
-        return LaneCenteringSettings()
-    else:
-      if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not lo <= v <= hi:
-        return LaneCenteringSettings()
-      v = float(v)
-    values[key] = v
-  return LaneCenteringSettings(enabled=values["enabled"], offset_m=values["offset_m"], e2e_authority=values["e2e_authority"],
-                               pause_on_signal=values["pause_on_signal"], strength=values["strength"])
+  return validate(cfg) or LaneCenteringSettings()
 
 
 def lateral_delay(sm) -> float | None:
@@ -76,8 +82,10 @@ class LaneCenteringRuntime:
   REFRESH_S = 1.0
   MAX_TICK_S = 0.05
 
-  def __init__(self, path: str | None = None, clock=time.monotonic):
+  def __init__(self, path: str | None = None, clock=time.monotonic, status_path: str | None = None):
     self.path = path
+    self.status = StatusWriter(status_path)
+    self._tick: dict | None = None    # last tick, folded into the status once post_limit has run
     self.clock = clock
     self.controller = LaneCenteringController()
     self.settings = LaneCenteringSettings()
@@ -118,13 +126,30 @@ class LaneCenteringRuntime:
 
   def pre_limit(self, sm, CS, CC, model_v2, base: float, measured: float) -> float:
     """Curvature to send to clip_curvature: the model's, plus the lane-centring nudge."""
-    if self.failed:
-      return base
+    self._report()
+    out = base
+    if not self.failed:
+      try:
+        out = self._pre_limit(sm, CS, CC, model_v2, base, measured)
+      except Exception:
+        self._fail()
+        out = base
     try:
-      return self._pre_limit(sm, CS, CC, model_v2, base, measured)
+      self._tick = {"lat_active": bool(CC.latActive), "v_ego": float(CS.vEgo), "reason": self.reason, "applied": 0.0}
     except Exception:
-      self._fail()
-      return base
+      self._tick = None
+    return out
+
+  def _report(self) -> None:
+    """Phone-page status (status.py). Never affects steering; errors only stop the status file."""
+    if self.status.broken:
+      return
+    try:
+      if self._tick is not None:
+        self.status.add(**self._tick)
+      self.status.flush(self.clock(), enabled=self.settings.enabled, failed=self.failed)
+    except Exception:
+      self.status.broken = True
 
   def _pre_limit(self, sm, CS, CC, model_v2, base: float, measured: float) -> float:
     now = self.clock()
@@ -169,7 +194,10 @@ class LaneCenteringRuntime:
       return limited
     try:
       guarded = self.controller.guard_applied(model_v2, baseline, limited, measured, v_ego, self.delay)
-      return guarded if math.isfinite(guarded) else baseline
+      guarded = guarded if math.isfinite(guarded) else baseline
+      if self._tick is not None:
+        self._tick["applied"] = float(guarded - baseline)
+      return guarded
     except Exception:
       self._fail()
       return baseline

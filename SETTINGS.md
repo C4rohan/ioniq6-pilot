@@ -108,6 +108,13 @@ default.** Turn it on from the `lane_centering` tab on the phone page:
 A missing, broken or out-of-range file means **off**. If lane centering ever hits an error, it
 switches itself off until the next drive, and the car keeps steering on the model as normal.
 
+**Status line:** the phone page's *Live status* card shows what lane centering is doing, updated
+every 2 seconds. For example: *correcting ← left, 0.13 m/s², 85% of the last second*, *centred, no
+correction needed*, *waiting: lane lines aren't clear enough*, *paused: turn signal on*, *paused:
+you're steering*, or *on, starts when you drive* while parked. controlsd writes it once a second to
+`/dev/shm/sp_lane_centering.json` (RAM, not flash). If that file can't be written, only the status
+line stops; steering is unaffected. If the settings file is invalid, the line says so.
+
 ## Reverse camera view
 
 `enabled` (default true) shows the clean forward-camera view in reverse; `hide_overlays: false`
