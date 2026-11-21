@@ -14,6 +14,7 @@ writes files** — nothing here controls the car (openpilot only steers on this 
 | `/data/sunnypilot_clips.json` | Save clip + auto-save (optional) | `full_res`, `max_storage_mb`, `auto_save`, `auto_brake_mps2`, `auto_takeover_lat`, `auto_takeover_kph`, `auto_disengage_kph`, `auto_delay_s`, `auto_min_gap_s`, `auto_max_per_day`, `notify_clips` |
 | `/data/sunnypilot_models.json` | Model selector cleanup (optional) | `hidden_folders` (list of folder names; `[]` shows every model) |
 | `/data/sunnypilot_lane_centering.json` | Lane centering (off until enabled) | `enabled`, `offset_m`, `strength`, `pause_on_signal`, `e2e_authority` |
+| `/data/sunnypilot_ioniq6_steering.json` | StarPilot Ioniq 6 steering controller (off until enabled; next drive) | `enabled`, `lat_accel_factor`, `friction` |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
 | `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips` |
 
@@ -114,6 +115,51 @@ correction needed*, *waiting: lane lines aren't clear enough*, *paused: turn sig
 you're steering*, or *on, starts when you drive* while parked. controlsd writes it once a second to
 `/dev/shm/sp_lane_centering.json` (RAM, not flash). If that file can't be written, only the status
 line stops; steering is unaffected. If the settings file is invalid, the line says so.
+
+## StarPilot Ioniq 6 steering controller
+
+StarPilot's steering controller built specifically for the Ioniq 6. When it's on, it **replaces
+sunnypilot's torque controller and NNLC**. Instead of one setting for every situation, it shapes the
+torque by what the car is doing:
+
+- separate tuning for right and left curves (the plain controller treats both the same)
+- a boost when turning into a curve, and less push when straightening out of one
+- an extra correction when a 2023–24 car over-rotates coming out of a curve
+- tapers around centre and on the highway, to stop small back-and-forth hunting
+- a separate tune for 2025-firmware cars, chosen automatically from the car's firmware
+
+**Off by default.** Turn it on from the `ioniq6_steering` tab on the phone page:
+
+```json
+{"enabled": true}
+```
+
+It takes effect **on the next drive**, never mid-drive. The phone page's *Live status* card shows a
+*Steering controller* line, so you can see which one is running and whether a change is still waiting
+for the next drive.
+
+| Key | Default | Range | What it does |
+|---|---|---|---|
+| `enabled` | `false` | | use StarPilot's controller from the next drive |
+| `lat_accel_factor` | `3.0` | 2.0 to 4.5 | StarPilot's base factor. It's multiplied by 1.22 internally, so 3.0 becomes 3.66. **Lower = more steering torque** |
+| `friction` | `0.09` | 0 to 0.2 | StarPilot's friction value |
+
+Some things to know:
+- It uses **StarPilot's own baseline tune** (3.0 × 1.22, friction 0.09), not this branch's custom tune
+  [3.17, 0.096]. Live-learned torque values aren't applied either; StarPilot does the same, because
+  its shaping was tuned around fixed values. The on-device torque sliders and the NNLC toggle are
+  ignored while it's on.
+- In a simulated 90 km/h curve, it asks for about 15–40% less torque than your current tune, and
+  more in right curves than left. On the road it may feel lighter. If it doesn't hold curves
+  firmly enough, lower `lat_accel_factor`, e.g. to 2.8.
+- Lane centering works with it: lane centering adjusts where the car aims, and this controller
+  decides how hard to steer to get there.
+- If it ever errors or produces a bad value, sunnypilot's normal controller takes over for the
+  rest of the drive, and the status line shows it. sunnypilot's controller keeps receiving the
+  live-learned values in the background, so it's ready to take over.
+- The code is pinned to StarPilot commit `008b0cb` (2026-11-21). StarPilot changes its Ioniq 6
+  tune often; this build doesn't follow it automatically. A test checks that our copy matches
+  StarPilot's recorded controller output number for number.
 
 ## Reverse camera view
 

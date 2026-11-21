@@ -26,6 +26,7 @@ Tracks the latest sunnypilot `release-tizi` (auto-rebased weekly) with Ioniq 6�
 |---|---|---|
 | 🧠 | **Ioniq 6 NNLC + torque tune** | A dedicated neural steering model and a measured lateral tune instead of the stock placeholder — smoother, more accurate lane centering. |
 | 🛣️ | **Lane centering** | Ported from StarPilot. When the lane lines are clear, it gently nudges the car back to the middle of the lane, or to an offset you choose. It lets go when you signal, change lanes, or take the wheel. Off until you switch it on. |
+| 🏎️ | **StarPilot Ioniq 6 steering** | StarPilot's steering controller made for the Ioniq 6: it tunes right and left curves separately, eases off when straightening out, and stops small highway wobbles. Switch it on from your phone; it starts on the next drive, and the phone shows which controller is running. |
 | 🎯 | **Steering-tune feedback** | Every time you take over the wheel, it records speed and curve context and whether you steered *into* the bend (tune too weak) or *against* it (too strong). A chart and verdict on your phone tell you which way the tune leans. |
 | 🔉 | **Alert volume** | Turn down the chimes and prompts to your taste. Critical warnings always stay at full volume. |
 | 🎞️ | **Save clip + auto-save** | One tap on your phone keeps the last 3 minutes of dashcam footage and saves a copy you can download. It also saves automatically after hard braking, a hard steering takeover, or an unexpected disengagement. |
@@ -54,7 +55,7 @@ Plus everything sunnypilot gives you for **steering**: MADS / Always-on Lateral,
 
 - The custom steering tune and NNLC model are for the Ioniq 6's own platform (shared with the Ioniq 5).
 - Sentry only runs while parked, disarms at 12.2 V (above comma's own 11.8 V cutoff), pauses when overheated, and stops after 12 h by default.
-- Lane centering is the one add-on that **does** change steering. It is off until you switch it on, adds at most a small, rate-limited nudge on top of the model, and still goes through openpilot's normal curvature limits. It lets go on a signal, a takeover or poor lane lines, and on any error it switches itself off for the rest of the drive.
+- Lane centering and the StarPilot Ioniq 6 controller are the add-ons that **do** change steering. Both are off until you switch them on. The controller is only ever chosen at the start of a drive, only on an Ioniq 6, and hands over to sunnypilot's own controller on any error. Lane centering adds at most a small, rate-limited nudge on top of the model, and still goes through openpilot's normal curvature limits. It lets go on a signal, a takeover or poor lane lines, and on any error it switches itself off for the rest of the drive.
 - Alert volume can only make chimes quieter; warnings on sunnypilot's must-play list are never scaled down.
 - Steering feedback, clips, reverse view, sentry, dashboard, logs, and notifications **never touch control** — they only read state and write files/webhooks.
 - Secrets (bot tokens, webhook URLs) live only on the device and are masked on the phone page.

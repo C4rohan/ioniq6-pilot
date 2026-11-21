@@ -22,6 +22,7 @@ from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 
 from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering.runtime import LaneCenteringRuntime
+from openpilot.sunnypilot.selfdrive.controls.lib.ioniq6_torque.controller import select_lateral_control
 
 State = log.SelfdriveState.OpenpilotState
 LaneChangeState = log.LaneChangeState
@@ -67,6 +68,8 @@ class Controls(ControlsExt):
       self.LaC = LatControlTorque(self.CP, self.CP_SP, self.CI, DT_CTRL)
 
     self.LaC = ControlsExt.initialize_lateral_control(self, self.LaC, self.CI, DT_CTRL)
+    # Ioniq6 build: StarPilot's Ioniq 6 controller if /data/sunnypilot_ioniq6_steering.json enables it (next drive)
+    self.LaC = select_lateral_control(self.CP, self.CP_SP, self.CI, DT_CTRL, self.LaC)
 
   def update(self):
     self.sm.update(15)

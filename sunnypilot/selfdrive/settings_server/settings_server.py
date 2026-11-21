@@ -45,6 +45,7 @@ CONFIGS = {
   "clips":          (os.path.join(DATA, "sunnypilot_clips.json"), True),
   "models":         (os.path.join(DATA, "sunnypilot_models.json"), True),
   "lane_centering": (os.path.join(DATA, "sunnypilot_lane_centering.json"), True),
+  "ioniq6_steering": (os.path.join(DATA, "sunnypilot_ioniq6_steering.json"), True),
 }
 
 TELEMETRY: telemetry.Telemetry | None = None
@@ -58,6 +59,16 @@ def lane_centering_status() -> dict:
   except Exception:
     cloudlog.exception("lane centering status")
     return {"state": "unknown", "level": "mut", "text": "unknown"}
+
+
+def steering_controller_status() -> dict:
+  """Which steering controller controlsd picked (ioniq6_torque/controller.py)."""
+  try:
+    from openpilot.sunnypilot.selfdrive.controls.lib.ioniq6_torque.controller import read_status
+    return read_status()
+  except Exception:
+    cloudlog.exception("steering controller status")
+    return {"level": "mut", "text": "unknown"}
 
 
 def mask_secrets(obj):
@@ -117,7 +128,8 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div class="stat"><span>Engaged (trip)</span><b id="tripeng">0</b>%</div>
 <div class="stat"><span>Model</span><b id="model" style="font-size:15px">?</b></div>
 </div>
-<div style="margin-top:10px;font-size:14px"><span style="color:var(--mut)">Lane centering:</span> <span id="lc">—</span></div></div>
+<div style="margin-top:10px;font-size:14px"><span style="color:var(--mut)">Lane centering:</span> <span id="lc">—</span></div>
+<div style="margin-top:4px;font-size:14px"><span style="color:var(--mut)">Steering controller:</span> <span id="stc">—</span></div></div>
 
 <div class="card"><h2>Settings</h2>
 <div class="tabs" id="tabs"></div><div id="editors"></div></div>
@@ -132,7 +144,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 </main>
 <footer>LAN only · no login · secrets are masked (leave the dots to keep a saved key)</footer>
 <script>
-const CFGS=["sentry","sound","steer_feedback","clips","notify","reverse_cam","models","lane_centering"];
+const CFGS=["sentry","sound","steer_feedback","clips","notify","reverse_cam","models","lane_centering","ioniq6_steering"];
 const $=id=>document.getElementById(id);
 async function get(u){const r=await fetch(u);return r.ok?await r.text():"";}
 async function status(){try{const s=JSON.parse(await get("/api/status"));
@@ -140,7 +152,9 @@ async function status(){try{const s=JSON.parse(await get("/api/status"));
  $("engaged").className="pill "+(s.engaged?"on":"off");$("engaged").textContent=s.engaged?"engaged":"not engaged";
  $("kph").textContent=s.kph;$("tripkm").textContent=s.trip_km;
  $("tripeng").textContent=s.trip_engaged_pct;$("model").textContent=s.model;
- const lc=s.lane_centering||{};$("lc").textContent=lc.text||"—";$("lc").style.color={on:"var(--ok)",warn:"var(--warn)",bad:"var(--bad)",mut:"var(--mut)"}[lc.level]||"";
+ const LV={on:"var(--ok)",warn:"var(--warn)",bad:"var(--bad)",mut:"var(--mut)"};
+ const lc=s.lane_centering||{};$("lc").textContent=lc.text||"—";$("lc").style.color=LV[lc.level]||"";
+ const sc=s.steering_controller||{};$("stc").textContent=sc.text||"—";$("stc").style.color=LV[sc.level]||"";
  $("upd").textContent=s.updated?new Date(s.updated*1000).toLocaleTimeString():"—";}catch(e){}}
 function table(rows){if(!rows.length)return "<div style='color:var(--mut)'>none yet</div>";
  const h=Object.keys(rows[0]);return "<div style='overflow:auto'><table><tr>"+h.map(x=>"<th>"+x+"</th>").join("")+"</tr>"+
@@ -219,7 +233,8 @@ class Handler(BaseHTTPRequestHandler):
     if u.path == "/":
       return self._send(200, PAGE, "text/html; charset=utf-8")
     if u.path == "/api/status":
-      return self._json({**(TELEMETRY.snapshot() if TELEMETRY else {}), "lane_centering": lane_centering_status()})
+      return self._json({**(TELEMETRY.snapshot() if TELEMETRY else {}), "lane_centering": lane_centering_status(),
+                         "steering_controller": steering_controller_status()})
     if u.path == "/api/trips":
       return self._json(telemetry.read_csv_tail(telemetry.TRIPS_CSV))
     if u.path == "/api/disengagements":
