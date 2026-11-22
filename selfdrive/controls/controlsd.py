@@ -23,6 +23,7 @@ from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering.runtime import LaneCenteringRuntime
 from openpilot.sunnypilot.selfdrive.controls.lib.ioniq6_torque.controller import select_lateral_control
+from openpilot.sunnypilot.selfdrive.controls.lib.smoothing.runtime import SmoothingRuntime
 
 State = log.SelfdriveState.OpenpilotState
 LaneChangeState = log.LaneChangeState
@@ -53,6 +54,7 @@ class Controls(ControlsExt):
     self.curvature = 0.0
     self.desired_curvature = 0.0
     self.lane_centering = LaneCenteringRuntime()  # Ioniq6 build: off unless /data/sunnypilot_lane_centering.json enables it
+    self.smoothing = SmoothingRuntime()  # Ioniq6 build: off unless /data/sunnypilot_smoothing.json enables it
 
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
@@ -144,14 +146,20 @@ class Controls(ControlsExt):
       new_desired_curvature = self.sm['lateralManeuverPlan'].desiredCurvature if CC.latActive else self.curvature
     else:
       new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
-    # Ioniq6 build: lane centering nudges the curvature before the normal limiter (see lane_centering/runtime.py)
+    # Ioniq6 build, in StarPilot's order: highway smoothing, then lane centering's nudge, then the
+    # lane-change rate limit, then the normal limiter (see smoothing/runtime.py, lane_centering/runtime.py)
+    new_desired_curvature = self.smoothing.smooth_highway(self.sm, CS, CC, model_v2, new_desired_curvature)
     lane_base_curvature = new_desired_curvature
     new_desired_curvature = self.lane_centering.pre_limit(self.sm, CS, CC, model_v2, new_desired_curvature, self.curvature)
     previous_curvature = self.desired_curvature
+    lane_change_factor = self.smoothing.lane_change_factor(self.sm, CS, CC, model_v2, previous_curvature, new_desired_curvature)
+    new_desired_curvature = self.smoothing.limit(CS.vEgo, previous_curvature, new_desired_curvature, lane_change_factor)
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, previous_curvature, new_desired_curvature, lp.roll)
     if self.lane_centering.correcting:
-      baseline_curvature, _ = clip_curvature(CS.vEgo, previous_curvature, lane_base_curvature, lp.roll)
+      baseline_curvature, _ = clip_curvature(CS.vEgo, previous_curvature,
+                                             self.smoothing.limit(CS.vEgo, previous_curvature, lane_base_curvature, lane_change_factor), lp.roll)
       self.desired_curvature = self.lane_centering.post_limit(model_v2, baseline_curvature, self.desired_curvature, self.curvature, CS.vEgo)
+    self.smoothing.report()
     lat_delay = self.sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 
     actuators.curvature = self.desired_curvature

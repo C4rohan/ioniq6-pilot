@@ -14,6 +14,7 @@ writes files** — nothing here controls the car (openpilot only steers on this 
 | `/data/sunnypilot_clips.json` | Save clip + auto-save (optional) | `full_res`, `max_storage_mb`, `auto_save`, `auto_brake_mps2`, `auto_takeover_lat`, `auto_takeover_kph`, `auto_disengage_kph`, `auto_delay_s`, `auto_min_gap_s`, `auto_max_per_day`, `notify_clips` |
 | `/data/sunnypilot_models.json` | Model selector cleanup (optional) | `hidden_folders` (list of folder names; `[]` shows every model) |
 | `/data/sunnypilot_upload.json` | Drive-data upload (off until enabled) | `enabled`, `repo` (`owner/name`) |
+| `/data/sunnypilot_smoothing.json` | Highway and lane-change smoothing (off until enabled) | `highway_smoothing`, `lane_change_smoothing`, `lane_change_seconds` |
 | `/data/sunnypilot_lane_centering.json` | Lane centering (off until enabled) | `enabled`, `offset_m`, `strength`, `pause_on_signal`, `e2e_authority` |
 | `/data/sunnypilot_ioniq6_steering.json` | StarPilot Ioniq 6 steering controller (off until enabled; next drive) | `enabled`, `live_learning`, `lat_accel_factor`, `friction` |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
@@ -117,6 +118,32 @@ correction needed*, *waiting: lane lines aren't clear enough*, *paused: turn sig
 you're steering*, or *on, starts when you drive* while parked. controlsd writes it once a second to
 `/dev/shm/sp_lane_centering.json` (RAM, not flash). If that file can't be written, only the status
 line stops; steering is unaffected. If the settings file is invalid, the line says so.
+
+## Highway and lane-change smoothing
+
+Two small StarPilot features, both **off by default**. Turn them on from the phone page's **smoothing** tab;
+changes apply within a second, even mid-drive.
+
+```json
+{"highway_smoothing": 4, "lane_change_smoothing": true}
+```
+
+| Key | Default | Range | What it does |
+|---|---|---|---|
+| `highway_smoothing` | `0` (off) | 0 to 9 | Damps the small left-right weave in the model's steering on roads above about 64 km/h. Higher = smoother. Try 3 to 5 |
+| `lane_change_smoothing` | `false` | | Makes lane changes build up more gently |
+| `lane_change_seconds` | `5.78` | 3 to 8 | How long a lane change should take with smoothing on. Longer = gentler |
+
+- **Highway smoothing** keeps the model's average line and only softens the wiggle around it. It backs
+  off by itself in tight curves and when the request changes a lot, and fades out when you signal, change
+  lanes, hold the wheel, or a sunnypilot steering maneuver is running. Level 5 roughly halves a typical
+  weave; 9 cuts it to about a fifth. StarPilot's own "Highway Smoothing" level is 10 minus this number.
+- **Lane-change smoothing** only slows how quickly the steering builds during a lane change and for two
+  seconds after, then eases back to normal. Steering back toward straight is never slowed. A change to
+  this setting made during a lane change waits until it's finished.
+- Both run before openpilot's normal steering limits, in the same order StarPilot uses, together with
+  lane centering. If either hits an error, it switches off for the rest of the drive and steering carries
+  on unchanged. The *Smoothing* line on the phone's Live status card shows what's on and when it's acting.
 
 ## StarPilot Ioniq 6 steering controller
 

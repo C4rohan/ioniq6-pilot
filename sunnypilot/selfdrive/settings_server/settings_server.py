@@ -58,6 +58,7 @@ CONFIGS = {
   "lane_centering": (os.path.join(DATA, "sunnypilot_lane_centering.json"), True),
   "ioniq6_steering": (os.path.join(DATA, "sunnypilot_ioniq6_steering.json"), True),
   "upload":         (os.path.join(DATA, "sunnypilot_upload.json"), True),
+  "smoothing":      (os.path.join(DATA, "sunnypilot_smoothing.json"), True),
 }
 
 TELEMETRY: telemetry.Telemetry | None = None
@@ -71,6 +72,16 @@ def lane_centering_status() -> dict:
   except Exception:
     cloudlog.exception("lane centering status")
     return {"state": "unknown", "level": "mut", "text": "unknown"}
+
+
+def smoothing_status() -> dict:
+  """Highway and lane-change smoothing (controls/lib/smoothing/runtime.py)."""
+  try:
+    from openpilot.sunnypilot.selfdrive.controls.lib.smoothing.runtime import read_status
+    return read_status(time.monotonic(), config_path=CONFIGS["smoothing"][0])
+  except Exception:
+    cloudlog.exception("smoothing status")
+    return {"level": "mut", "text": "unknown"}
 
 
 def steering_controller_status() -> dict:
@@ -141,6 +152,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div class="stat"><span>Model</span><b id="model" style="font-size:15px">?</b></div>
 </div>
 <div style="margin-top:10px;font-size:14px"><span style="color:var(--mut)">Lane centering:</span> <span id="lc">—</span></div>
+<div style="margin-top:4px;font-size:14px"><span style="color:var(--mut)">Smoothing:</span> <span id="smo">—</span></div>
 <div style="margin-top:4px;font-size:14px"><span style="color:var(--mut)">Steering controller:</span> <span id="stc">—</span></div></div>
 
 <div class="card"><h2>Drive stats</h2><div class="tabs" id="dstabs"></div><div id="dsbody">loading…</div>
@@ -165,7 +177,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 </main>
 <footer>LAN only · no login · secrets are masked (leave the dots to keep a saved key)</footer>
 <script>
-const CFGS=["sentry","sound","steer_feedback","clips","notify","reverse_cam","models","lane_centering","ioniq6_steering","upload"];
+const CFGS=["sentry","sound","steer_feedback","clips","notify","reverse_cam","models","lane_centering","smoothing","ioniq6_steering","upload"];
 const $=id=>document.getElementById(id);
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 async function get(u){const r=await fetch(u);return r.ok?await r.text():"";}
@@ -177,6 +189,7 @@ async function status(){try{const s=JSON.parse(await get("/api/status"));
  const LV={on:"var(--ok)",warn:"var(--warn)",bad:"var(--bad)",mut:"var(--mut)"};
  const lc=s.lane_centering||{};$("lc").textContent=lc.text||"—";$("lc").style.color=LV[lc.level]||"";
  const sc=s.steering_controller||{};$("stc").textContent=sc.text||"—";$("stc").style.color=LV[sc.level]||"";
+ const so=s.smoothing||{};$("smo").textContent=so.text||"—";$("smo").style.color=LV[so.level]||"";
  $("upd").textContent=s.updated?new Date(s.updated*1000).toLocaleTimeString():"—";}catch(e){}}
 function table(rows){if(!rows.length)return "<div style='color:var(--mut)'>none yet</div>";
  const h=Object.keys(rows[0]);return "<div style='overflow:auto'><table><tr>"+h.map(x=>"<th>"+x+"</th>").join("")+"</tr>"+
@@ -328,7 +341,7 @@ class Handler(BaseHTTPRequestHandler):
       return self._send(200, PAGE, "text/html; charset=utf-8")
     if u.path == "/api/status":
       return self._json({**(TELEMETRY.snapshot() if TELEMETRY else {}), "lane_centering": lane_centering_status(),
-                         "steering_controller": steering_controller_status()})
+                         "steering_controller": steering_controller_status(), "smoothing": smoothing_status()})
     if u.path == "/api/trips":
       return self._json(telemetry.read_csv_tail(telemetry.TRIPS_CSV))
     if u.path == "/api/disengagements":
