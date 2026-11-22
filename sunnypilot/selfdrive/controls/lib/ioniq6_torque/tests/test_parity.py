@@ -49,7 +49,8 @@ def ioniq6_cp(profile="2023", matched=True):
   return cp
 
 
-def build(cp, cfg=None, tmp_path=None):
+def build(cp, cfg=None, tmp_path=None, scale=1.0):
+  """scale=1.0 runs StarPilot's math on StarPilot's own torque scale (what the frozen traces use)."""
   cp_sp = interfaces[CAR.HYUNDAI_IONIQ_6].get_non_essential_params_sp(cp, CAR.HYUNDAI_IONIQ_6)
   ci = interfaces[CAR.HYUNDAI_IONIQ_6](cp, cp_sp)
   sunnypilot_interfaces.setup_interfaces(ci)
@@ -57,7 +58,7 @@ def build(cp, cfg=None, tmp_path=None):
   fallback = LatControlTorque(cp.as_reader(), cp_sp.as_reader(), ci, DT_CTRL)
   cfg = cfg or {"enabled": True, "lat_accel_factor": 3.0, "friction": 0.09}
   status = str(tmp_path / "status.json") if tmp_path else "/nonexistent/status.json"
-  return LatControlIoniq6(cp.as_reader(), cp_sp.as_reader(), ci, DT_CTRL, fallback, cfg, status), VehicleModel(cp)
+  return LatControlIoniq6(cp.as_reader(), cp_sp.as_reader(), ci, DT_CTRL, fallback, cfg, status, scale=scale), VehicleModel(cp)
 
 
 def run(controller, vm, sequence, roll=0.03, lat_delay=0.1):

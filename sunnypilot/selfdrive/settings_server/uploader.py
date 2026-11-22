@@ -67,9 +67,24 @@ def read_config(path: str | None = None) -> tuple[dict | None, str]:
   return (cfg, "") if cfg else (None, 'needs {"enabled": true, "repo": "owner/name"}')
 
 
+def _public_from_private(path: str) -> str:
+  """Rebuild the public half from the private key (so a lost .pub never means a new deploy key)."""
+  from cryptography.hazmat.primitives import serialization
+  with open(path, "rb") as f:
+    k = serialization.load_ssh_private_key(f.read(), password=None)
+  return k.public_key().public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH).decode() + f" {KEY_COMMENT}"
+
+
 def ensure_key(path: str) -> str:
   """The device's own upload key: create it once, return the public half."""
   pub = path + ".pub"
+  if os.path.exists(path) and not os.path.exists(pub):
+    try:
+      text = _public_from_private(path)
+      with open(pub, "w") as f:
+        f.write(text + "\n")
+    except Exception:
+      pass                                     # unreadable private key: make a new pair below
   if not (os.path.exists(path) and os.path.exists(pub)):
     for p in (path, pub):
       if os.path.exists(p):
@@ -138,16 +153,36 @@ class Uploader:
       return {}
 
   def _save_status(self, **kw) -> None:
+    if all(self.status.get(k) == v for k, v in kw.items()) and os.path.exists(self.status_path):
+      return                                   # unchanged: don't rewrite /data every 30 s
     self.status.update(kw)
     tmp = self.status_path + ".tmp"
     with open(tmp, "w") as f:
       json.dump(self.status, f)
     os.replace(tmp, self.status_path)
 
+  def _pin_host_key(self) -> None:
+    """Rewrite the pinned GitHub key whenever the file differs, so an edited file is never trusted."""
+    want = GITHUB_HOST_KEY + "\n"
+    try:
+      with open(self.known_hosts) as f:
+        if f.read() == want:
+          return
+    except FileNotFoundError:
+      pass
+    tmp = self.known_hosts + ".tmp"
+    with open(tmp, "w") as f:
+      f.write(want)
+    os.replace(tmp, self.known_hosts)
+
   def _git(self, *args, check=True):
-    ssh = shlex.join(["ssh", "-i", self.key_path, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-                    "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={self.known_hosts}"])
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": ssh}
+    # Only our key, only the pinned host key, and no user/system ssh or git config that could add
+    # hosts, proxies, identities or hooks.
+    ssh = shlex.join(["ssh", "-F", "/dev/null", "-i", self.key_path, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+                      "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={self.known_hosts}",
+                      "-o", "GlobalKnownHostsFile=/dev/null"])
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": ssh, "GIT_CONFIG_GLOBAL": "/dev/null",
+           "GIT_CONFIG_NOSYSTEM": "1"}
     r = subprocess.run(["git", "-C", self.repo_dir, "-c", "user.name=ioniq6 comma", "-c", "user.email=comma@ioniq6.invalid",
                         "-c", "commit.gpgsign=false", *args], env=env, capture_output=True, text=True, timeout=GIT_TIMEOUT_S)
     if check and r.returncode != 0:
@@ -192,9 +227,7 @@ class Uploader:
       self._save_status(enabled=False, state="off" if not problem else "error", error=problem)
       return
     pub = ensure_key(self.key_path)
-    if not os.path.exists(self.known_hosts):
-      with open(self.known_hosts, "w") as f:
-        f.write(GITHUB_HOST_KEY + "\n")
+    self._pin_host_key()
     digest = files_hash(self.data_dir)
     if digest == self.status.get("last_hash") and self.status.get("repo") == cfg["repo"]:
       self._save_status(enabled=True, repo=cfg["repo"], pubkey=pub, state="ok", error="")

@@ -197,6 +197,8 @@ class LaneCenteringRuntime:
       guarded = guarded if math.isfinite(guarded) else baseline
       if self._tick is not None:
         self._tick["applied"] = float(guarded - baseline)
+        if self.delay is None:                 # the guard holds every correction back until this is known
+          self._tick["reason"] = "no_delay"
       return guarded
     except Exception:
       self._fail()

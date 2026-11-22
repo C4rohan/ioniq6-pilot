@@ -15,7 +15,7 @@ writes files** — nothing here controls the car (openpilot only steers on this 
 | `/data/sunnypilot_models.json` | Model selector cleanup (optional) | `hidden_folders` (list of folder names; `[]` shows every model) |
 | `/data/sunnypilot_upload.json` | Drive-data upload (off until enabled) | `enabled`, `repo` (`owner/name`) |
 | `/data/sunnypilot_lane_centering.json` | Lane centering (off until enabled) | `enabled`, `offset_m`, `strength`, `pause_on_signal`, `e2e_authority` |
-| `/data/sunnypilot_ioniq6_steering.json` | StarPilot Ioniq 6 steering controller (off until enabled; next drive) | `enabled`, `lat_accel_factor`, `friction` |
+| `/data/sunnypilot_ioniq6_steering.json` | StarPilot Ioniq 6 steering controller (off until enabled; next drive) | `enabled`, `live_learning`, `lat_accel_factor`, `friction` |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
 | `/data/sunnypilot_notify.json` | Notifications | `enabled`, `type` (`telegram`/`webhook`), `bot_token`, `chat_id`, `webhook_url`, `notify_trips` |
 
@@ -45,8 +45,9 @@ script after each update** if you use sentry (everything else survives updates).
 Nothing to enable — it logs whenever the phone page is running. Each takeover while openpilot is steering is
 classified *too weak* (you steered into the curve), *too strong* (against it), or *straight*. After 10 curve
 takeovers the phone page gives a verdict. Read it as a trend over several drives, and compare with NNLC on vs off
-(with NNLC on, it reflects the neural model; off, the torque tune). If the verdict feels backwards on your car,
-set `invert_sign: true`.
+(with NNLC on, it reflects the neural model; off, the torque tune). Takeovers logged before the November 2026
+sign fix had too weak and too strong swapped; they're corrected automatically once. If you had set
+`invert_sign: true` to work around that, remove it now.
 
 ## Alert volume
 
@@ -142,17 +143,23 @@ for the next drive.
 | Key | Default | Range | What it does |
 |---|---|---|---|
 | `enabled` | `false` | | use StarPilot's controller from the next drive |
-| `lat_accel_factor` | `3.0` | 2.0 to 4.5 | StarPilot's base factor. It's multiplied by 1.22 internally, so 3.0 becomes 3.66. **Lower = more steering torque** |
-| `friction` | `0.09` | 0 to 0.2 | StarPilot's friction value |
+| `live_learning` | `true` | | use the car's live-learned steering values when they're within StarPilot's bounds |
+| `lat_accel_factor` | `3.0` | 2.0 to 4.5 | StarPilot's base factor, in StarPilot's units. **Lower = more steering torque** |
+| `friction` | `0.09` | 0 to 0.2 | StarPilot's friction value, in StarPilot's units |
 
 Some things to know:
-- It uses **StarPilot's own baseline tune** (3.0 × 1.22, friction 0.09), not this branch's custom tune
-  [3.17, 0.096]. Live-learned torque values aren't applied either; StarPilot does the same, because
-  its shaping was tuned around fixed values. The on-device torque sliders and the NNLC toggle are
-  ignored while it's on.
-- In a simulated 90 km/h curve, it asks for about 15–40% less torque than your current tune, and
-  more in right curves than left. On the road it may feel lighter. If it doesn't hold curves
-  firmly enough, lower `lat_accel_factor`, e.g. to 2.8.
+- **It's rescaled to this car's torque limit.** StarPilot lets CAN-FD Hyundais use up to 409 units of
+  steering torque; this build (like sunnypilot) allows 270, which the comma's safety layer enforces.
+  StarPilot's tune assumes 409, so it's converted to ask for the same torque in units: factor
+  3.0 → 1.98 (× 1.22 inside → 2.42), friction 0.09 → 0.136. The phone shows the converted numbers.
+  The two limits only differ in the sharpest curves, where this build tops out sooner.
+- **It uses live learning like StarPilot does.** The car's learned steering values are used once they're
+  within StarPilot's bounds: factor within ±30% of the base tune, friction between half and 1.5 times
+  it, and a small offset. Until then it uses the base tune. The status line says which.
+  The on-device torque sliders and the NNLC toggle are ignored while it's on.
+- In a simulated 90 km/h curve it asks for about 20–30% more torque than your current tune while
+  holding the curve, and about the same (±16%) turning in and straightening out, with more in right
+  curves than left. If it feels too strong, raise `lat_accel_factor` (e.g. 3.3); too weak, lower it.
 - Lane centering works with it: lane centering adjusts where the car aims, and this controller
   decides how hard to steer to get there.
 - If it ever errors or produces a bad value, sunnypilot's normal controller takes over for the
@@ -178,8 +185,7 @@ Nothing to enable. A bad or old camera calibration feels just like a bad steerin
 card first when steering feels off. It shows the calibration status, how far the mount is turned or tilted
 compared with what openpilot allows, whether that moved since your recent drives, the wheel offset, and
 how far live steering learning has got. *Steering mode* says what is steering on the current drive; with
-StarPilot's Ioniq 6 controller on, it shows that controller's fixed tune, and the learned numbers on
-the card don't change its steering. Each drive adds one row to `/data/sp_calibration.csv`.
+StarPilot's Ioniq 6 controller on, it shows that controller's tune and whether it's using live learning. Each drive adds one row to `/data/sp_calibration.csv`.
 
 ## Curve log
 

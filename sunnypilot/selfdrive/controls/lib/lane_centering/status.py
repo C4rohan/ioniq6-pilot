@@ -34,6 +34,7 @@ REASONS = {
   "invalid_input": ("paused", "paused: bad input"),
   "invalid_model": ("waiting", "waiting: model output not usable"),
   "error": ("error", "error: switched off until the next drive"),
+  "no_delay": ("waiting", "waiting: openpilot's steering-delay estimate isn't ready"),
 }
 LEVEL = {"correcting": "on", "centred": "on", "standby": "mut", "off": "mut", "not_driving": "mut",
          "paused": "warn", "waiting": "warn", "error": "bad"}

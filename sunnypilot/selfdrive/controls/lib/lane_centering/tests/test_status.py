@@ -8,9 +8,9 @@ from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering import runtime a
 from openpilot.sunnypilot.selfdrive.controls.lib.lane_centering.tests.test_runtime import BASE, Clock, SM, cs, model
 
 
-def drive(r, clock, m, ticks, CS=None, latActive=True):
+def drive(r, clock, m, ticks, CS=None, latActive=True, sm=None):
   """controlsd's call order, with the car steering exactly as commanded."""
-  sm, CS, CC = SM(), CS or cs(), SimpleNamespace(latActive=latActive)
+  sm, CS, CC = sm or SM(), CS or cs(), SimpleNamespace(latActive=latActive)
   for i in range(ticks):
     sm.logMonoTime["modelV2"] = 1 + i // 5
     clock.t += 0.01
@@ -120,6 +120,14 @@ class TestRuntimeStatus:
     cfg({"enabled": False})
     drive(r, clock, model(prob=0.3), 300)
     assert st.read_status(clock.t, config_path=cfg.path)["text"] == "off"
+
+  def test_missing_steering_delay_says_waiting_not_centred(self, cfg, status_file):
+    """Without liveDelay the guard holds every correction back; the phone must not claim it's centred."""
+    clock = Clock()
+    r = rt.LaneCenteringRuntime(cfg({"enabled": True}), clock)
+    drive(r, clock, model(left=-2.1, right=1.5), 300, sm=SM(delay=None))
+    d = st.read_status(clock.t, config_path=cfg.path)
+    assert d["state"] == "waiting" and "steering-delay" in d["text"]
 
   def test_runtime_reports_error(self, cfg, status_file, monkeypatch):
     clock = Clock()

@@ -98,7 +98,8 @@ class TestPure:
 
 
 class TestStarPilotController:
-  RUNNING = {"controller": "starpilot_ioniq6", "variant": "2023-24", "failed": False, "lat_accel_factor": 3.66, "friction": 0.09}
+  RUNNING = {"controller": "starpilot_ioniq6", "variant": "2023-24", "failed": False, "lat_accel_factor": 2.416, "friction": 0.136,
+             "live_learning": True, "learned": False}
   ON = {"NeuralNetworkLateralControl": True, "EnforceTorqueControl": True, "CustomTorqueParams": True, "TorqueParamsOverrideEnabled": True}
 
   def mode(self, steering):
@@ -106,8 +107,9 @@ class TestStarPilotController:
 
   def test_running_controller_replaces_toggles(self):
     m = self.mode(self.RUNNING)
-    assert m["controller"] == "starpilot_ioniq6" and not m["nnlc"] and not m["sliders"] and not m["live_learning"]
-    assert cal.mode_label(m) == "StarPilot Ioniq 6 (2023-24) · fixed 3.66/0.09"
+    assert m["controller"] == "starpilot_ioniq6" and not m["nnlc"] and not m["sliders"] and m["live_learning"]
+    assert cal.mode_label(m) == "StarPilot Ioniq 6 (2023-24) · base tune 2.416/0.136"
+    assert cal.mode_label(self.mode({**self.RUNNING, "learned": True})) == "StarPilot Ioniq 6 (2023-24) · live learning 2.416/0.136"
 
   def test_report_explains_and_skips_learned_strength_warning(self):
     rep = cal.evaluate(snap(laf=2.0), BAKED, self.mode(self.RUNNING))
@@ -164,6 +166,26 @@ class TestTelemetry:
     assert len(t.cal_sent()) == 1 and "reset mid-drive" in t.cal_sent()[0]
     rows = tm.read_csv_all(tm.CAL_CSV)
     assert [r["event"] for r in rows] == ["recalibrating"]
+
+  def test_damaged_history_row_ends_the_drive_once(self, tm, t):
+    """A row cut short by a power loss used to make the end of a drive repeat every second."""
+    for _ in range(3):
+      tm.append_csv(tm.CAL_CSV, cal.CAL_FIELDS, {"event": "trip", "status": "calibrated", "yaw_deg": "0.5", "pitch_deg": "1.0"})
+    with open(tm.CAL_CSV, "a") as f:
+      f.write("2026-11-01 08:00,trip,calibrated\n")              # truncated: yaw/pitch missing
+    w = self.drive(t, W, 60)
+    for _ in range(5):
+      w = self.drive(t, w, 1, started=False)
+    trips = tm.read_csv_all(tm.TRIPS_CSV)
+    assert len(trips) == 1 and len([m for m in t.sent if not m.startswith("📐")]) == 1
+    assert [r["event"] for r in tm.read_csv_all(tm.CAL_CSV)].count("trip") == 5    # 3 + damaged + this drive
+
+  def test_end_of_drive_steps_are_independent(self, tm, t, monkeypatch):
+    monkeypatch.setattr(t, "_calibration_trip_end", lambda wall: 1 / 0)
+    monkeypatch.setattr(t, "_curves_trip_end", lambda wall, trip=None: 1 / 0)
+    w = self.drive(t, W, 60)
+    self.drive(t, w, 3, started=False)
+    assert len(tm.read_csv_all(tm.TRIPS_CSV)) == 1 and t.trip is None
 
   def test_no_alert_when_trip_starts_uncalibrated(self, tm, t):
     self.drive(t, W, 5, status="uncalibrated", pct=20)

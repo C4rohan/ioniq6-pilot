@@ -6,7 +6,8 @@ Runs as a background thread inside the settings-server process. It NEVER touches
 vehicle control: it only READS openpilot state and WRITES log files and webhooks.
 
 Steering-tune feedback: every time you take over the wheel while openpilot is
-steering, it records speed and curve context and classifies the override:
+steering, it records speed and curve context and classifies the override (signs: see
+classify_override):
   under    you steered INTO the curve   -> openpilot wasn't turning enough (tune too weak)
   over     you steered AGAINST the curve -> openpilot was turning too much (tune too strong)
   straight on a straight / gentle road  -> lane position preference, not tune strength
@@ -66,7 +67,8 @@ OVERRIDE_DEBOUNCE_S = 2.0
 TRIP_FIELDS = ["start", "end", "minutes", "km", "max_kph", "engaged_pct", "disengagements", "model",
                "steer_pct", "aol_min", "distracted", "unresponsive"]
 DIS_FIELDS = ["time", "kph", "gas", "brake", "steer", "standstill", "trip_km", "lat", "lon", "model"]
-OVR_FIELDS = ["time", "kph", "kind", "lat_accel", "desired_curv", "actual_curv", "torque", "model", "lat", "lon"]
+OVR_FIELDS = ["time", "kph", "kind", "lat_accel", "desired_curv", "actual_curv", "torque", "model", "lat", "lon", "sign"]
+OVR_SIGN = "v2"     # rows classified with the corrected sign (see classify_override)
 TRACK_FIELDS = ["trip", "time", "lat", "lon", "kph"]
 TRACK_PERIOD_S = 15.0
 TRACK_KEEP_TRIPS = 30
@@ -170,12 +172,44 @@ def clips_config() -> dict:
 
 def classify_override(v_mps: float, torque: float, desired_curv: float,
                       straight_lat_accel: float = 0.3, invert_sign: bool = False) -> tuple[str, float]:
-  """Returns (kind, desired lateral accel). Convention: left-positive torque and curvature."""
+  """Returns (kind, desired lateral accel).
+
+  Signs: desiredCurvature is positive for a RIGHT curve (controlsd negates the steering-angle
+  curvature), while steeringTorque is positive to the LEFT (same as the actuator command). So the
+  driver steers INTO the curve when the two have opposite signs. (Before Nov 2026 this compared them
+  as if both were left-positive, which swapped "under" and "over"; migrate_override_signs fixes
+  rows logged then.)
+  """
   lat = float(v_mps) ** 2 * float(desired_curv)
   if abs(lat) < float(straight_lat_accel) or torque == 0:
     return "straight", lat
   t = -float(torque) if invert_sign else float(torque)
-  return ("under" if (t > 0) == (desired_curv > 0) else "over"), lat
+  return ("under" if (t > 0) != (desired_curv > 0) else "over"), lat
+
+
+def migrate_override_signs(path: str, invert_sign: bool) -> int:
+  """Once: swap under/over on takeovers logged with the old sign. Returns rows changed.
+
+  If invert_sign was on, those rows were already right (two flips), so they're only marked.
+  """
+  if not os.path.exists(path):
+    return 0
+  with open(path, newline="") as f:
+    header = next(csv.reader(f), [])
+  if "sign" in header:
+    return 0
+  rows, changed = read_csv_all(path), 0
+  swap = {"under": "over", "over": "under"}
+  with open(path + ".tmp", "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=OVR_FIELDS, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+      if not invert_sign and r.get("kind") in swap:
+        r["kind"] = swap[r["kind"]]
+        changed += 1
+      w.writerow({**{k: r.get(k, "") for k in OVR_FIELDS}, "sign": OVR_SIGN})
+  os.replace(path + ".tmp", path)
+  return changed
 
 
 def bucket_for(kph: float) -> str:
@@ -374,6 +408,12 @@ class Telemetry:
     self.cal_prev_status = None
     self.cal_alerted: set = set()
     self.param_bool = self.param_float = self.offline_reader = None   # set in run(); tests leave them None
+    try:
+      n = migrate_override_signs(OVERRIDES_CSV, bool(steer_config().get("invert_sign")))
+      if n:
+        print(f"telemetry: corrected too-weak/too-strong on {n} logged takeovers", flush=True)
+    except Exception as e:
+      print(f"telemetry: takeover sign migration failed: {e}", flush=True)
     self.curve_tracker = curves.CurveTracker()
     self.curve_status_at = -1e9
     self.lc_snap = None
@@ -456,15 +496,11 @@ class Telemetry:
     if started and not self.prev_started:
       self.curve_tracker, self.curves_broken = curves.CurveTracker(), False   # an error only costs that one drive
     if not started and self.prev_started and self.trip:
-      if self.trip.dist_m >= MIN_TRIP_M:
-        self._curves_trip_end(wall)
-        append_csv(TRIPS_CSV, TRIP_FIELDS, self.trip.row())
-        if self.notify_cfg.get("notify_trips", True):
-          send_notification(self.trip.summary())
-        self._calibration_trip_end(wall)
-      self.trip = None
-      self._save_stats()
-      self._trim_track()
+      # Take the trip off first: if any write below fails, the next tick must not end it again
+      # (that once re-logged and re-notified the same drive every second while parked).
+      trip, self.trip = self.trip, None
+      self.prev_started = started
+      self._trip_end(trip, wall)
     self.prev_started = started
     if self.trip:
       self.trip.update(v, engaged, dt, wall, lat_active)
@@ -499,7 +535,7 @@ class Telemetry:
                                     self.steer_cfg["straight_lat_accel"], bool(self.steer_cfg["invert_sign"]))
       append_csv(OVERRIDES_CSV, OVR_FIELDS, {
         "time": datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M:%S"), "kph": round(v * MPS_TO_KPH),
-        "kind": kind, "lat_accel": round(lat, 3), "desired_curv": round(float(ctl.desiredCurvature), 6),
+        "kind": kind, "sign": OVR_SIGN, "lat_accel": round(lat, 3), "desired_curv": round(float(ctl.desiredCurvature), 6),
         "actual_curv": round(float(ctl.curvature), 6), "torque": round(float(cs.steeringTorque), 1),
         "model": self.trip.model if self.trip else active_model_name(), "lat": lat_s, "lon": lon_s})
       if abs(lat) >= float(self.clips_cfg["auto_takeover_lat"]) and v * MPS_TO_KPH >= float(self.clips_cfg["auto_takeover_kph"]):
@@ -543,10 +579,26 @@ class Telemetry:
                           "updated": round(wall)})
 
   # ------------------------------------------------------------------------- curve log
-  def _curve_ctx(self, wall: float) -> dict:
+  def _trip_end(self, trip: "Trip", wall: float) -> None:
+    """Each step is independent: one failing (full disk, a damaged log row) doesn't skip the others."""
+    steps = []
+    if trip.dist_m >= MIN_TRIP_M:
+      steps += [("curve log", lambda: self._curves_trip_end(wall, trip)),
+                ("trip log", lambda: append_csv(TRIPS_CSV, TRIP_FIELDS, trip.row())),
+                ("notification", lambda: self.notify_cfg.get("notify_trips", True) and send_notification(trip.summary())),
+                ("calibration", lambda: self._calibration_trip_end(wall))]
+    steps += [("stats", self._save_stats), ("track trim", self._trim_track)]
+    for name, fn in steps:
+      try:
+        fn()
+      except Exception as e:
+        print(f"telemetry: end of drive, {name} failed: {e}", flush=True)
+
+  def _curve_ctx(self, wall: float, trip: "Trip | None" = None) -> dict:
+    trip = trip or self.trip
     return {"time": datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M:%S"),
-            "trip": datetime.fromtimestamp(self.trip.start).strftime("%Y%m%d-%H%M%S") if self.trip else "",
-            "controller": self.steer_controller, "model": self.trip.model if self.trip else active_model_name()}
+            "trip": datetime.fromtimestamp(trip.start).strftime("%Y%m%d-%H%M%S") if trip else "",
+            "controller": self.steer_controller, "model": trip.model if trip else active_model_name()}
 
   def _curve_step(self, sm, cs, ctl, lat_active: bool, v: float, dt: float, now: float, wall: float) -> None:
     if self.curves_broken:
@@ -573,11 +625,11 @@ class Telemetry:
       print(f"telemetry: curve log disabled: {e}", flush=True)
       self.curves_broken = True
 
-  def _curves_trip_end(self, wall: float) -> None:
+  def _curves_trip_end(self, wall: float, trip: "Trip | None" = None) -> None:
     if self.curves_broken:
       return
     try:
-      for row in self.curve_tracker.trip_end(self._curve_ctx(wall)):
+      for row in self.curve_tracker.trip_end(self._curve_ctx(wall, trip)):
         append_csv(CURVES_CSV, curves.FIELDS, row)
       trim_by_trip(CURVES_CSV, curves.FIELDS, CURVES_KEEP_TRIPS)
     except Exception as e:

@@ -91,10 +91,12 @@ def tuning_mode(get_bool, get_float, steering: dict | None = None) -> dict:
   """Which steering path is in charge, from sunnypilot's toggles (mirrors torqued_ext / latcontrol_torque_ext).
 
   steering = what controlsd chose at drive start. While StarPilot's Ioniq 6 controller runs, it
-  replaces NNLC, the sliders and live learning, with its own fixed tune.
+  replaces NNLC and the sliders with its own tune (rescaled to this car's torque limit), and uses
+  live-learned values only when they're within StarPilot's bounds.
   """
   if steering and steering.get("controller") == STARPILOT and not steering.get("failed"):
-    return {"nnlc": False, "sliders": False, "live_learning": False, "controller": STARPILOT,
+    return {"nnlc": False, "sliders": False, "live_learning": bool(steering.get("live_learning")),
+            "learned": bool(steering.get("learned")), "controller": STARPILOT,
             "variant": str(steering.get("variant") or "2023-24"),
             "controller_laf": steering.get("lat_accel_factor"), "controller_friction": steering.get("friction")}
   nnlc = bool(get_bool("NeuralNetworkLateralControl"))
@@ -114,7 +116,8 @@ def mode_label(mode: dict | None) -> str:
   if not mode:
     return "?"
   if mode.get("controller") == STARPILOT:
-    return f"StarPilot Ioniq 6 ({mode['variant']}) · fixed {mode['controller_laf']}/{mode['controller_friction']}"
+    learn = "live learning" if mode.get("learned") else "base tune"
+    return f"StarPilot Ioniq 6 ({mode['variant']}) · {learn} {mode['controller_laf']}/{mode['controller_friction']}"
   parts = ["NNLC" if mode["nnlc"] else "torque"]
   if mode.get("sliders"):
     parts.append(f"sliders {mode['slider_laf']}/{mode['slider_friction']}")
@@ -139,14 +142,21 @@ def limit_use(x: float, lo: float, hi: float) -> float:
 
 def drift(snap: dict, trips: list[dict]) -> dict | None:
   """Mount angle now vs the median of your last few drives. None until there's enough history."""
-  ok = [r for r in trips if r.get("status") == "calibrated"][-5:]
+  ok = []
+  for r in trips:
+    if r.get("status") != "calibrated":
+      continue
+    try:
+      yaw, pitch = float(r["yaw_deg"]), float(r["pitch_deg"])
+    except (KeyError, ValueError, TypeError):      # a damaged row (power cut mid-write) is skipped, not fatal
+      continue
+    if math.isfinite(yaw) and math.isfinite(pitch):
+      ok.append((yaw, pitch))
+  ok = ok[-5:]
   if len(ok) < DRIFT_MIN_TRIPS:
     return None
-  try:
-    yaw0 = statistics.median(float(r["yaw_deg"]) for r in ok)
-    pitch0 = statistics.median(float(r["pitch_deg"]) for r in ok)
-  except (KeyError, ValueError):
-    return None
+  yaw0 = statistics.median(y for y, _ in ok)
+  pitch0 = statistics.median(p for _, p in ok)
   return {"yaw": round(snap["yaw_deg"] - yaw0, 2), "pitch": round(snap["pitch_deg"] - pitch0, 2)}
 
 
@@ -192,8 +202,11 @@ def evaluate(snap: dict | None, offline: dict | None = None, mode: dict | None =
     add("info", "NNLC is on, so the neural model steers; the torque numbers below matter less.")
   starpilot = bool(mode and mode.get("controller") == STARPILOT)
   if starpilot:
-    add("info", f"StarPilot's Ioniq 6 controller is steering with its own fixed tune (factor {mode['controller_laf']}, "
-                f"friction {mode['controller_friction']}). The learned numbers below don't change its steering.")
+    learn = ("it's using the learned values below" if mode.get("learned") else
+             "learned values are used once they're within ±30% of its base tune" if mode.get("live_learning") else
+             "live learning is switched off for it")
+    add("info", f"StarPilot's Ioniq 6 controller is steering (factor {mode['controller_laf']}, friction "
+                f"{mode['controller_friction']}, rescaled to this car's torque limit); {learn}.")
   if mode and mode.get("controller_failed"):
     add("warn", "StarPilot's Ioniq 6 controller hit an error at the last drive; sunnypilot's controller took over.")
 

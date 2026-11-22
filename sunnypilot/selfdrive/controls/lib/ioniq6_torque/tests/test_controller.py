@@ -63,13 +63,14 @@ class TestSelection:
     chosen, current, status = select(files)
     assert isinstance(chosen, ctl.LatControlIoniq6) and chosen.fallback is current
     assert status["controller"] == ctl.STARPILOT and status["variant"] == "2023-24"
-    assert status["lat_accel_factor"] == pytest.approx(3.66) and status["friction"] == pytest.approx(0.09)
+    assert status["torque_scale"] == pytest.approx(270 / 409, abs=1e-4)
+    assert status["lat_accel_factor"] == pytest.approx(3.0 * 270 / 409 * 1.22, abs=1e-4) and status["friction"] == pytest.approx(0.09 * 409 / 270, abs=1e-4)
     assert chosen.pid._k_p == [[0.0], [0.6]]                           # StarPilot's flat gain for this policy
 
   def test_custom_factor_gets_multiplier_once(self, files):
     files({"enabled": True, "lat_accel_factor": 3.2, "friction": 0.1})
     chosen, _, _ = select(files)
-    assert chosen.torque_params.latAccelFactor == pytest.approx(3.2 * 1.22) and chosen.torque_params.friction == pytest.approx(0.1)
+    assert chosen.torque_params.latAccelFactor == pytest.approx(3.2 * 270 / 409 * 1.22) and chosen.torque_params.friction == pytest.approx(0.1 * 409 / 270)
 
   def test_other_car_is_never_switched(self, files):
     files({"enabled": True})
@@ -108,12 +109,46 @@ class TestRuntime:
     rows = run(controller, vm, [(True, 20.0, 0.0, 0.0005, False)] * 5)
     assert controller.failed and all(math.isfinite(r[0]) for r in rows)
 
-  def test_learned_params_go_to_fallback_only(self, tmp_path):
-    controller, _ = build(ioniq6_cp(), tmp_path=tmp_path)
-    before = (controller.torque_params.latAccelFactor, controller.torque_params.friction, (controller.pid.pos_limit, controller.pid.neg_limit))
-    controller.update_live_torque_params(2.1, 0.05, 0.2)
-    assert (controller.torque_params.latAccelFactor, controller.torque_params.friction, (controller.pid.pos_limit, controller.pid.neg_limit)) == before
-    assert controller.fallback.torque_params.latAccelFactor == pytest.approx(2.1)
+  def test_learned_values_in_starpilot_bounds_are_used(self, tmp_path):
+    controller, _ = build(ioniq6_cp(), tmp_path=tmp_path, scale=270 / 409)
+    base = 3.0 * 270 / 409
+    limits_before = controller.pid.pos_limit
+    controller.update_live_torque_params(1.1 * base, 0.05, 0.1)
+    assert controller.torque_params.latAccelFactor == pytest.approx(1.1 * base * 1.22)
+    assert (controller.torque_params.latAccelOffset, controller.torque_params.friction) == (pytest.approx(0.05), pytest.approx(0.1))
+    assert controller.learned and controller.pid.pos_limit != limits_before          # limits follow the new factor
+    assert controller.fallback.torque_params.latAccelFactor == pytest.approx(1.1 * base)
+
+  @pytest.mark.parametrize("factor_x,offset,friction", [(0.6, 0.0, 0.09), (1.4, 0.0, 0.09), (1.0, 0.9, 0.09),
+                                                         (1.0, 0.0, 0.05), (1.0, 0.0, 0.3), (float("nan"), 0.0, 0.09)])
+  def test_learned_values_outside_bounds_are_ignored(self, tmp_path, factor_x, offset, friction):
+    controller, _ = build(ioniq6_cp(), tmp_path=tmp_path, scale=270 / 409)
+    before = (controller.torque_params.latAccelFactor, controller.torque_params.latAccelOffset, controller.torque_params.friction)
+    controller.update_live_torque_params(factor_x * 3.0 * 270 / 409, offset, friction)
+    assert (controller.torque_params.latAccelFactor, controller.torque_params.latAccelOffset, controller.torque_params.friction) == before
+    assert not controller.learned
+
+  def test_learning_can_be_switched_off(self, tmp_path):
+    controller, _ = build(ioniq6_cp(), cfg={"enabled": True, "live_learning": False, "lat_accel_factor": 3.0, "friction": 0.09},
+                          tmp_path=tmp_path, scale=270 / 409)
+    before = controller.torque_params.latAccelFactor
+    controller.update_live_torque_params(before / 1.22, 0.0, 0.13)
+    controller.update_live_torque_params(1.1 * before / 1.22, 0.0, 0.13)
+    assert controller.torque_params.latAccelFactor == before and not controller.learned
+
+  def test_same_torque_in_units_as_starpilot(self, tmp_path):
+    """Rescaled to 270, the controller asks for the same steering torque in units as StarPilot does at 409."""
+    ours, vm = build(ioniq6_cp(), tmp_path=tmp_path, scale=270 / 409)
+    theirs, _ = build(ioniq6_cp(), tmp_path=tmp_path, scale=1.0)
+    seq = [(True, 25.0, 0.0, 0.0006, False)] * 150
+    a, b = run(ours, vm, seq, roll=0.0), run(theirs, vm, seq, roll=0.0)
+    assert abs(b[-1][0]) > 0.05 and a[-1][0] * 270 == pytest.approx(b[-1][0] * 409, rel=1e-3)
+
+  def test_fallback_request_history_stays_current(self, tmp_path):
+    controller, vm = build(ioniq6_cp(), tmp_path=tmp_path)
+    run(controller, vm, [(True, 20.0, 0.0, 0.002, False)] * 60)
+    buf = controller.fallback.lat_accel_request_buffer
+    assert buf[-1] == pytest.approx(0.002 * 20.0 ** 2) and all(x == pytest.approx(0.8) for x in list(buf)[-50:])
 
   def test_extension_calls_reach_fallback_and_unknown_ones_are_harmless(self, tmp_path, monkeypatch):
     controller, _ = build(ioniq6_cp(), tmp_path=tmp_path)
@@ -146,12 +181,14 @@ class TestRuntime:
 
 class TestPhoneStatus:
   ON = {"enabled": True, "lat_accel_factor": 3.0, "friction": 0.09}
-  RUNNING = {"controller": ctl.STARPILOT, "variant": "2023-24", "failed": False, "lat_accel_factor": 3.66, "friction": 0.09}
+  RUNNING = {"controller": ctl.STARPILOT, "variant": "2023-24", "failed": False, "lat_accel_factor": 2.416, "friction": 0.136,
+             "live_learning": True, "learned": False}
 
   @pytest.mark.parametrize("status,cfg,problem,level,text", [
     (None, None, "", "mut", "sunnypilot standard"),
     (None, ON, "", "mut", "StarPilot Ioniq 6 (2023–24 tune), from your next drive"),
-    (RUNNING, ON, "", "on", "StarPilot Ioniq 6 (2023–24 tune), factor 3.66, friction 0.09"),
+    (RUNNING, ON, "", "on", "StarPilot Ioniq 6 (2023–24 tune), factor 2.416, friction 0.136, live learning not in range yet"),
+    ({**RUNNING, "learned": True}, ON, "", "on", "StarPilot Ioniq 6 (2023–24 tune), factor 2.416, friction 0.136, using live learning"),
     ({"controller": ctl.STANDARD}, ON, "", "warn", "sunnypilot standard this drive; StarPilot Ioniq 6 (2023–24 tune) from the next drive"),
     (RUNNING, None, "", "warn", "StarPilot Ioniq 6 (2023–24 tune) this drive; sunnypilot standard from the next drive"),
     ({**RUNNING, "failed": True}, ON, "", "bad", "StarPilot Ioniq 6 hit an error; sunnypilot took over for that drive"),

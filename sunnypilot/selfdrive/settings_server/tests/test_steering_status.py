@@ -40,9 +40,10 @@ def test_page_has_line_and_tab(server):
 def test_switching_on_shows_next_drive_then_running(server):
   base, tmp = server
   assert status(base)["text"] == "sunnypilot standard"
-  urllib.request.urlopen(urllib.request.Request(base + "/api/config?name=ioniq6_steering", data=b'{"enabled": true}', method="POST")).read()
+  urllib.request.urlopen(urllib.request.Request(base + "/api/config?name=ioniq6_steering", data=b'{"enabled": true}', method="POST",
+                                                headers={"Content-Type": "application/json"})).read()
   assert status(base)["text"] == "StarPilot Ioniq 6 (2023–24 tune), from your next drive"
   cp, cp_sp, ci, current = parts()
   assert isinstance(ctl.select_lateral_control(cp, cp_sp, ci, DT_CTRL, current), ctl.LatControlIoniq6)   # next drive starts
   s = status(base)
-  assert s["level"] == "on" and s["text"].startswith("StarPilot Ioniq 6 (2023–24 tune), factor 3.66")
+  assert s["level"] == "on" and s["text"].startswith("StarPilot Ioniq 6 (2023–24 tune), factor 2.4161")

@@ -32,7 +32,8 @@ def server(tm, tmp_path, monkeypatch):
 
 
 def req(url, data=None, method=None):
-  r = urllib.request.Request(url, data=data.encode() if data else None, method=method)
+  r = urllib.request.Request(url, data=data.encode() if data else None, method=method,
+                             headers={"Content-Type": "application/json"} if data is not None or method == "POST" else {})
   try:
     with urllib.request.urlopen(r) as resp:
       return resp.status, resp.read()

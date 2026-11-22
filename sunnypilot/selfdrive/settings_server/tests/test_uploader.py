@@ -82,6 +82,17 @@ class TestKey:
       assert derived == pub.split()[:2]
 
 
+  def test_lost_public_half_is_rebuilt_not_replaced(self, tmp_path):
+    k = str(tmp_path / "k")
+    pub = up.ensure_key(k)
+    with open(k, "rb") as f:
+      private = f.read()
+    os.remove(k + ".pub")
+    assert up.ensure_key(k) == pub
+    with open(k, "rb") as f:
+      assert f.read() == private                                     # same key: the deploy key still works
+
+
 class TestUpload:
   def test_off_by_default_makes_no_key(self, tmp_path):
     e = Env(tmp_path, cfg=None)
@@ -99,6 +110,21 @@ class TestUpload:
     assert env.remote_file("sp_curves.csv") == "dir\nright\n"
     with open(env.u.known_hosts) as f:
       assert f.read().strip() == up.GITHUB_HOST_KEY
+
+  def test_edited_known_hosts_is_repinned(self, env):
+    env.write("sp_curves.csv", "1\n")
+    with open(env.u.known_hosts, "w") as f:
+      f.write("github.com ssh-ed25519 AAAAattacker\n")
+    env.u.step()
+    with open(env.u.known_hosts) as f:
+      assert f.read().strip() == up.GITHUB_HOST_KEY
+
+  def test_status_file_not_rewritten_when_nothing_changed(self, env):
+    env.write("sp_curves.csv", "1\n")
+    env.u.step()
+    before = os.stat(env.u.status_path).st_mtime_ns
+    env.u.step()
+    assert os.stat(env.u.status_path).st_mtime_ns == before
 
   def test_only_pushes_when_data_changed(self, env):
     env.write("sp_curves.csv", "1\n")

@@ -38,6 +38,13 @@ DATA = telemetry.DATA
 SENTRY_DIR = os.path.join(DATA, "sentry")
 CLIPS_DIR = telemetry.CLIPS_DIR
 SENTRY_IMG = re.compile(r"^[\w\-]+\.png$")
+# The page is LAN-only with no login, so requests are checked instead:
+#  - Host must be an IP, a single-label name, or a local name (.local/.lan/.home.arpa/.localhost).
+#    A DNS-rebinding page arrives with its own public domain as Host and is refused.
+#  - Writes must come from this page: no foreign Origin, no cross-site Sec-Fetch-Site, and a JSON
+#    content type (which a cross-site form or no-cors fetch can't send without a preflight).
+LOCAL_HOST = re.compile(r"^(?:\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9-]{1,63}|"
+                        r"[A-Za-z0-9.-]{1,200}\.(?:local|lan|home\.arpa|localhost))(?::\d{1,5})?$")
 
 # name -> (path, writable)
 CONFIGS = {
@@ -160,6 +167,7 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <script>
 const CFGS=["sentry","sound","steer_feedback","clips","notify","reverse_cam","models","lane_centering","ioniq6_steering","upload"];
 const $=id=>document.getElementById(id);
+const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 async function get(u){const r=await fetch(u);return r.ok?await r.text():"";}
 async function status(){try{const s=JSON.parse(await get("/api/status"));
  $("onroad").className="pill "+(s.onroad?"on":"off");$("onroad").textContent=s.onroad?"onroad":"offroad";
@@ -218,7 +226,7 @@ async function curvelog(){try{const d=JSON.parse(await get("/api/curves"));$("cv
   ["right","left"].map(k=>{const r=s[k];return `<tr style="${r.enough?"":"color:var(--mut)"}"><td>${k} curves</td><td>${r.curves}</td><td>${cvside(r.entry)}</td><td><b>${cvside(r.sits)}</b></td><td>${cvside(r.exit)}</td><td>${r.steer_gap==null?"–":(r.steer_gap>0?"+":"")+r.steer_gap.toFixed(2)+" m/s²"}</td><td>${r.takeovers}</td></tr>`;}).join("")+
   `<tr><td>straights</td><td>${s.straight.drives} drive${s.straight.drives===1?"":"s"}</td><td></td><td><b>${cvside(s.straight.sits)}</b></td><td></td><td></td><td></td></tr></table></div>`).join("");}catch(e){console.error("curves",e)}}
 async function upload(){try{const d=JSON.parse(await get("/api/upload"));const col={on:"#34d399",warn:"#fbbf24",bad:"#f87171",mut:"#8b93a7"}[d.level]||"#8b93a7";
- $("upv").innerHTML=`<b style="color:${col}">${d.text}</b>`;
+ $("upv").innerHTML=`<b style="color:${col}">${esc(d.text)}</b>`;
  $("upk").innerHTML=d.pubkey?`<div style="font-size:12px;color:var(--mut);margin-top:8px">Device key (tap to select, then copy):</div><textarea id="upkey" readonly rows="3" style="width:100%;font-family:monospace;font-size:11px;background:#0b0d11;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px" onclick="this.select();try{document.execCommand('copy')}catch(e){}"></textarea>`:"";
  if(d.pubkey)$("upkey").value=d.pubkey;}catch(e){console.error("upload",e)}}
 let DS=null,DSTAB="overview";
@@ -226,7 +234,7 @@ const dsn=(x,u)=>x==null?"–":x+(u?" "+u:"");
 const dsh=m=>m==null?"–":(m>=60?Math.floor(m/60)+" h "+Math.round(m%60)+" min":Math.round(m)+" min");
 function dsdrives(rows){if(!rows.length)return "<div style='color:var(--mut)'>no drives yet</div>";
  return "<div style='overflow:auto'><table><tr><th>start</th><th>km</th><th>time</th><th>engaged</th><th>steering</th><th>steering-only</th><th>alerts</th><th>model</th></tr>"+
-  rows.map(r=>`<tr><td>${r.start}</td><td>${r.km}</td><td>${dsh(r.minutes)}</td><td>${dsn(r.engaged_pct,"%")}</td><td>${dsn(r.steer_pct,"%")}</td><td>${dsh(r.aol_min)}</td><td>${r.distracted==null?"–":r.distracted+" / "+r.unresponsive}</td><td>${r.model}</td></tr>`).join("")+"</table></div>";}
+  rows.map(r=>`<tr><td>${r.start}</td><td>${r.km}</td><td>${dsh(r.minutes)}</td><td>${dsn(r.engaged_pct,"%")}</td><td>${dsn(r.steer_pct,"%")}</td><td>${dsh(r.aol_min)}</td><td>${r.distracted==null?"–":r.distracted+" / "+r.unresponsive}</td><td>${esc(r.model)}</td></tr>`).join("")+"</table></div>";}
 function dsweek(w){const W=320,H=120,P=18,mx=Math.max(1,...w.days.map(d=>d.km)),bw=(W-2*P)/7;
  const bars=w.days.map((d,i)=>{const h=(H-2*P)*d.km/mx,x=P+i*bw+4,y=H-P-h;return `<rect x="${x}" y="${y}" width="${bw-8}" height="${Math.max(h,1)}" rx="3" fill="#4f8cff"${d.km?"":" fill-opacity='.25'"}/><text x="${x+(bw-8)/2}" y="${H-4}" fill="#8b93a7" font-size="10" text-anchor="middle">${d.label}</text>`+(d.km?`<text x="${x+(bw-8)/2}" y="${y-3}" fill="#e8eaf0" font-size="9" text-anchor="middle">${Math.round(d.km)}</text>`:"");}).join("");
  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:520px">${bars}</svg>`;}
@@ -238,7 +246,7 @@ function dsrender(){const d=DS;if(!d)return;const st=(k,v,sub)=>`<div class="sta
   (d.last_drive?`<div style="font-size:13px;margin-top:10px"><b>Last drive</b> ${d.last_drive.start}: ${d.last_drive.km} km in ${dsh(d.last_drive.minutes)}, ${dsn(d.last_drive.engaged_pct,"%")} engaged</div>`:"");
  if(DSTAB==="week")h=dsweek(w)+`<div class="grid" style="margin-top:6px">${st("This week",dsn(w.km,"km"),w.drives+" drives")+st("Time",dsn(w.hours,"h"),"")+st("Engaged",dsn(w.engaged_pct,"%"),"")+st("Steering-only",dsh(w.aol_min),"")}</div>`;
  if(DSTAB==="records")h=`<div class="grid">${d.records.map(r=>st(r.label,r.value==null?"–":r.value+" "+r.unit,r.when||"")).join("")||"<div style='color:var(--mut)'>no drives yet</div>"}</div>`;
- if(DSTAB==="models")h=d.models.length?"<div style='overflow:auto'><table><tr><th>model</th><th>km</th><th>hours</th><th>drives</th></tr>"+d.models.map(m=>`<tr><td>${m.name}</td><td>${m.km}</td><td>${m.hours}</td><td>${m.drives}</td></tr>`).join("")+"</table></div>":"<div style='color:var(--mut)'>no drives yet</div>";
+ if(DSTAB==="models")h=d.models.length?"<div style='overflow:auto'><table><tr><th>model</th><th>km</th><th>hours</th><th>drives</th></tr>"+d.models.map(m=>`<tr><td>${esc(m.name)}</td><td>${m.km}</td><td>${m.hours}</td><td>${m.drives}</td></tr>`).join("")+"</table></div>":"<div style='color:var(--mut)'>no drives yet</div>";
  if(DSTAB==="drives")h=dsdrives(d.recent);
  $("dsbody").innerHTML=h;
  $("dstabs").innerHTML=[["overview","Overview"],["week","This week"],["records","Records"],["models","Models"],["drives","Recent drives"]].map(([k,l])=>`<span class="tab${k===DSTAB?" act":""}" onclick="DSTAB='${k}';dsrender()">${l}</span>`).join("");}
@@ -275,9 +283,9 @@ async function editor(name){const box=$("editors");box.innerHTML="";
  const b=document.createElement("button");b.textContent="Save "+name;box.appendChild(b);
  const m=document.createElement("div");m.className="msg";box.appendChild(m);
  b.onclick=async()=>{try{JSON.parse(ta.value)}catch(e){m.className="msg err";m.textContent="Invalid JSON: "+e.message;return}
-  const r=await fetch("/api/config?name="+name,{method:"POST",body:ta.value});m.className="msg "+(r.ok?"ok":"err");m.textContent=await r.text();};}
+  const r=await fetch("/api/config?name="+name,{method:"POST",headers:{"Content-Type":"application/json"},body:ta.value});m.className="msg "+(r.ok?"ok":"err");m.textContent=await r.text();};}
 CFGS.forEach(n=>{const t=document.createElement("span");t.className="tab";t.dataset.n=n;t.textContent=n;t.onclick=()=>editor(n);$("tabs").appendChild(t)});
-$("savebtn").onclick=async()=>{$("savemsg").className="msg";$("savemsg").textContent="Saving…";try{const r=await fetch("/api/clip",{method:"POST"});const d=await r.json();
+$("savebtn").onclick=async()=>{$("savemsg").className="msg";$("savemsg").textContent="Saving…";try{const r=await fetch("/api/clip",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const d=await r.json();
  $("savemsg").className="msg "+(d.ok?"ok":"err");$("savemsg").textContent=d.ok?`Saved ${d.segments.length} min (${d.files.length} files)`:d.error;clipsList();}catch(e){$("savemsg").className="msg err";$("savemsg").textContent="Save failed";}};
 editor("sentry");status();logs();sentry();calib();setInterval(calib,5000);curvelog();setInterval(curvelog,30000);drivestats();setInterval(drivestats,60000);upload();setInterval(upload,15000);steer();clipsList();scorecard();takeoverMap();setInterval(steer,30000);setInterval(scorecard,60000);setInterval(takeoverMap,60000);setInterval(clipsList,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
 </script></body></html>"""
@@ -298,7 +306,23 @@ class Handler(BaseHTTPRequestHandler):
   def _json(self, obj, code=200):
     self._send(code, json.dumps(obj), "application/json")
 
+  def _host_ok(self) -> bool:
+    return bool(LOCAL_HOST.match(self.headers.get("Host", "")))
+
+  def _write_ok(self) -> str:
+    """'' if this POST may change something, else why not."""
+    origin = self.headers.get("Origin")
+    if origin is not None and urlparse(origin).netloc != self.headers.get("Host", ""):
+      return "cross-site request refused"
+    if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+      return "cross-site request refused"
+    if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+      return "expected application/json"
+    return ""
+
   def do_GET(self):
+    if not self._host_ok():
+      return self._send(403, "unexpected Host")
     u = urlparse(self.path)
     if u.path == "/":
       return self._send(200, PAGE, "text/html; charset=utf-8")
@@ -390,6 +414,11 @@ class Handler(BaseHTTPRequestHandler):
     return self._send(404, "not found")
 
   def do_POST(self):
+    if not self._host_ok():
+      return self._send(403, "unexpected Host")
+    refused = self._write_ok()
+    if refused:
+      return self._send(403 if "cross-site" in refused else 415, refused)
     u = urlparse(self.path)
     if u.path == "/api/clip":
       try:

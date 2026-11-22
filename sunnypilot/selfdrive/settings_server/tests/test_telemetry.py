@@ -22,13 +22,30 @@ def new_telemetry(tm, **clip_cfg):
 
 class TestClassify:
   @pytest.mark.parametrize("torque,curv,expected", [
-    (+150, +0.002, "under"), (-150, +0.002, "over"), (-150, -0.002, "under"), (+150, -0.002, "over"), (150, 0.0001, "straight"),
+    # right curve (curvature > 0): the driver turning right (torque < 0) is steering INTO it
+    (-150, +0.002, "under"), (+150, +0.002, "over"), (+150, -0.002, "under"), (-150, -0.002, "over"), (150, 0.0001, "straight"),
   ])
   def test_kinds(self, tm, torque, curv, expected):
     assert tm.classify_override(25.0, torque, curv)[0] == expected
 
   def test_invert_sign(self, tm):
-    assert tm.classify_override(25.0, +150, +0.002, invert_sign=True)[0] == "over"
+    assert tm.classify_override(25.0, -150, +0.002, invert_sign=True)[0] == "over"
+
+  def test_signs_match_openpilot(self):
+    """Right curve = positive curvature (controlsd), and the Ioniq 6 policy answers it with negative torque."""
+    from openpilot.sunnypilot.selfdrive.controls.lib.ioniq6_torque.tests.test_parity import build, ioniq6_cp, run
+    controller, vm = build(ioniq6_cp())
+    assert run(controller, vm, [(True, 20.0, 0.0, 0.001, False)] * 100, roll=0.0)[-1][0] < 0
+
+  @pytest.mark.parametrize("invert,expected", [(False, ["over", "under", "straight"]), (True, ["under", "over", "straight"])])
+  def test_old_rows_are_corrected_once(self, tm, invert, expected):
+    old = [f for f in tm.OVR_FIELDS if f != "sign"]
+    for kind in ("under", "over", "straight"):
+      tm.append_csv(tm.OVERRIDES_CSV, old, {"kph": "80", "kind": kind})
+    tm.migrate_override_signs(tm.OVERRIDES_CSV, invert)
+    tm.migrate_override_signs(tm.OVERRIDES_CSV, invert)                  # second run changes nothing
+    rows = tm.read_csv_all(tm.OVERRIDES_CSV)
+    assert [r["kind"] for r in rows] == expected and all(r["sign"] == tm.OVR_SIGN for r in rows)
 
 
 class TestSummary:
@@ -61,7 +78,7 @@ class TestStep:
     t.step(fake_sm(), 0.2, 21.2, W + 21.2)
     t.step(fake_sm(pressed=True, torque=-120, dcurv=0.002), 0.2, 24, W + 24)
     rows = tm.read_csv_all(tm.OVERRIDES_CSV)
-    assert [r["kind"] for r in rows] == ["under", "over"]
+    assert [r["kind"] for r in rows] == ["over", "under"]      # right curve: left torque fights it, right torque helps
     assert rows[0]["kph"] == "90" and rows[0]["model"] == "TEST" and rows[0]["lat"] == "40.7"
 
   def test_ignored_when_not_steering_or_slow(self, tm):
