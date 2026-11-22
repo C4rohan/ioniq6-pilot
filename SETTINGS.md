@@ -13,6 +13,7 @@ writes files** — nothing here controls the car (openpilot only steers on this 
 | `/data/sunnypilot_steer_feedback.json` | Steering-tune feedback (optional) | `min_speed_kph`, `straight_lat_accel`, `invert_sign` |
 | `/data/sunnypilot_clips.json` | Save clip + auto-save (optional) | `full_res`, `max_storage_mb`, `auto_save`, `auto_brake_mps2`, `auto_takeover_lat`, `auto_takeover_kph`, `auto_disengage_kph`, `auto_delay_s`, `auto_min_gap_s`, `auto_max_per_day`, `notify_clips` |
 | `/data/sunnypilot_models.json` | Model selector cleanup (optional) | `hidden_folders` (list of folder names; `[]` shows every model) |
+| `/data/sunnypilot_upload.json` | Drive-data upload (off until enabled) | `enabled`, `repo` (`owner/name`) |
 | `/data/sunnypilot_lane_centering.json` | Lane centering (off until enabled) | `enabled`, `offset_m`, `strength`, `pause_on_signal`, `e2e_authority` |
 | `/data/sunnypilot_ioniq6_steering.json` | StarPilot Ioniq 6 steering controller (off until enabled; next drive) | `enabled`, `lat_accel_factor`, `friction` |
 | `/data/sunnypilot_reverse_cam.json` | Reverse camera view | `enabled`, `hide_overlays` |
@@ -183,6 +184,22 @@ The **Curve log** card on the phone page groups the last 10 drives by setup (whi
 centering on or off), so you can compare a drive with a change against one without it. Each side needs
 3 curves with clear lane lines before it's summarised. To download the raw rows, use the *download CSV*
 link or `http://<device-ip>:8088/api/curves.csv`. The last 30 drives are kept in `/data/sp_curves.csv`.
+
+## Drive-data upload
+
+Sends the curve log, calibration history and trip list to a **private** GitHub repo whenever the device
+is online. Nothing with GPS is sent: takeovers, the drive track and sentry photos stay on the device.
+To set it up once:
+
+1. In the phone page's **upload** tab, save `{"enabled": true, "repo": "owner/name"}`.
+2. The **Data upload** card shows the device's key after a few seconds. Add it to that repo as a deploy
+   key with write access: *repo → Settings → Deploy keys → Add deploy key*, tick *Allow write access*.
+3. The card changes to "up to date" after the next upload attempt. Failed attempts are retried, waiting
+   longer each time, up to once an hour.
+
+The device makes its own key (`/data/sp_upload_key`), and the private half never leaves it. The deploy key
+can only write to that one repo; to cut it off, delete the deploy key on GitHub. GitHub's host key is
+pinned, so the upload won't go to an impostor server.
 
 ## Reverse camera view
 
