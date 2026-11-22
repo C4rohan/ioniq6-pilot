@@ -12,12 +12,16 @@ steering, it records speed and curve context and classifies the override:
   straight on a straight / gentle road  -> lane position preference, not tune strength
 It's a heuristic: a trend over many overrides is meaningful, a single one isn't.
 
+Calibration health (calibration.py): mount angle vs calibrationd's limits, drift between drives,
+steering-angle offset, and live torque learning progress; alerts when calibration resets mid-drive.
+
 Also: GPS position on each takeover/disengagement and a sparse drive track (for the takeover map),
 a per-model scorecard, and auto-saved dashcam clips after hard braking, hard steering takeovers, or
 unexpected disengagements.
 
 Files (under /data, never in the repo):
-  sp_trips.csv, sp_disengagements.csv, sp_overrides.csv, sp_track.csv, sp_steer_stats.json
+  sp_trips.csv, sp_disengagements.csv, sp_overrides.csv, sp_track.csv, sp_steer_stats.json,
+  sp_calibration.csv, sp_calibration_last.json
   sunnypilot_notify.json, sunnypilot_steer_feedback.json (optional)
 """
 import csv
@@ -27,6 +31,8 @@ import threading
 import time
 import urllib.request
 from datetime import datetime
+
+from openpilot.sunnypilot.selfdrive.settings_server import calibration
 
 DATA = os.environ.get("SUNNYPILOT_DATA", "/data")
 TRIPS_CSV = os.path.join(DATA, "sp_trips.csv")
@@ -38,6 +44,10 @@ STEER_CONFIG = os.path.join(DATA, "sunnypilot_steer_feedback.json")
 TRACK_CSV = os.path.join(DATA, "sp_track.csv")
 CLIPS_CONFIG = os.path.join(DATA, "sunnypilot_clips.json")
 CLIPS_DIR = os.path.join(DATA, "saved_clips")
+CAL_CSV = os.path.join(DATA, "sp_calibration.csv")
+CAL_LAST = os.path.join(DATA, "sp_calibration_last.json")
+CAL_PERIOD_S = 1.0
+CAL_SERVICES = ("liveCalibration", "liveParameters", "liveTorqueParameters")
 
 LOOP_HZ = 10
 CONFIG_PERIOD = 5.0
@@ -336,6 +346,13 @@ class Telemetry:
     self.last_button_wall = -1e9
     self.hard_brake_latched = False
     self.saver = self._default_saver
+    last = load_json(CAL_LAST)
+    self.cal_snap = last.get("snap")
+    self.offline, self.tuning = last.get("offline"), last.get("mode")
+    self.cal_at = -1e9
+    self.cal_prev_status = None
+    self.cal_alerted: set = set()
+    self.param_bool = self.param_float = self.offline_reader = None   # set in run(); tests leave them None
 
   def _reload_configs(self, now):
     if now - self.cfg_read < CONFIG_PERIOD:
@@ -344,6 +361,13 @@ class Telemetry:
     self.notify_cfg = load_json(NOTIFY_CONFIG)
     self.steer_cfg = steer_config()
     self.clips_cfg = clips_config()
+    try:
+      if self.param_bool:
+        self.tuning = calibration.tuning_mode(self.param_bool, self.param_float, calibration.read_steering_status())
+      if self.offline_reader and self.offline is None:
+        self.offline = self.offline_reader()
+    except Exception as e:
+      print(f"telemetry: tuning read failed: {e}", flush=True)
 
   def _save_stats(self):
     try:
@@ -402,11 +426,13 @@ class Telemetry:
 
     if started and not self.prev_started:
       self.trip = Trip(wall)
+      self.offline, self.cal_prev_status, self.cal_alerted = None, None, set()   # the baked tune can change with an update
     if not started and self.prev_started and self.trip:
       if self.trip.dist_m >= MIN_TRIP_M:
         append_csv(TRIPS_CSV, TRIP_FIELDS, self.trip.row())
         if self.notify_cfg.get("notify_trips", True):
           send_notification(self.trip.summary())
+        self._calibration_trip_end(wall)
       self.trip = None
       self._save_stats()
       self._trim_track()
@@ -461,10 +487,15 @@ class Telemetry:
                                            "time": datetime.fromtimestamp(wall).strftime("%H:%M:%S"),
                                            "lat": lat_s, "lon": lon_s, "kph": round(v * MPS_TO_KPH)})
 
+    if started and now - self.cal_at >= CAL_PERIOD_S:
+      self.cal_at = now
+      self._calibration_step(sm, wall)
+
     self._fire_pending(wall)
     if now - self.stats_saved >= STATS_PERIOD:
       self.stats_saved = now
       self._save_stats()
+      self._save_calibration()
 
     with self.lock:
       self.status.update({"onroad": started, "engaged": engaged, "steering": lat_active, "kph": round(v * MPS_TO_KPH),
@@ -472,6 +503,54 @@ class Telemetry:
                           "trip_km": round(self.trip.dist_m / 1000.0, 2) if self.trip else 0.0,
                           "trip_engaged_pct": self.trip.row()["engaged_pct"] if self.trip else 0,
                           "updated": round(wall)})
+
+  # ------------------------------------------------------------------------- calibration health
+
+  def _calibration_step(self, sm, wall: float) -> None:
+    msgs = []
+    for svc in CAL_SERVICES:
+      try:
+        rf = getattr(sm, "recv_frame", None)   # real SubMaster: skip services that never published (zeroed defaults)
+        msgs.append(sm[svc] if rf is None or rf.get(svc, 0) > 0 else None)
+      except (KeyError, IndexError, TypeError):
+        msgs.append(None)
+    if msgs[0] is None:
+      return
+    snap = calibration.extract(*msgs)
+    self.cal_snap = snap
+    st = snap["status"]
+    if self.cal_prev_status == "calibrated" and st in ("recalibrating", "invalid") and st not in self.cal_alerted:
+      self.cal_alerted.add(st)
+      append_csv(CAL_CSV, calibration.CAL_FIELDS,
+                 calibration.row(snap, st, datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M:%S"), self.tuning))
+      if self.notify_cfg.get("notify_calibration", True):
+        send_notification("📐 Calibration " + ("is INVALID: the device is mounted at an angle openpilot can't use."
+                          if st == "invalid" else "reset mid-drive: the mount angle changed. Steering is off until it recalibrates."))
+    self.cal_prev_status = st
+
+  def _calibration_trip_end(self, wall: float) -> None:
+    if not self.cal_snap:
+      return
+    history = read_csv_all(CAL_CSV)
+    d = calibration.drift(self.cal_snap, [r for r in history if r.get("event") == "trip"])
+    append_csv(CAL_CSV, calibration.CAL_FIELDS,
+               calibration.row(self.cal_snap, "trip", datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M"), self.tuning))
+    self._save_calibration()
+    if d and (abs(d["yaw"]) >= calibration.DRIFT_YAW_DEG or abs(d["pitch"]) >= calibration.DRIFT_PITCH_DEG) \
+       and self.notify_cfg.get("notify_calibration", True):
+      send_notification(f"📐 The device's mount angle moved since your recent drives (yaw {d['yaw']:+.1f}°, pitch {d['pitch']:+.1f}°). "
+                        "If it was bumped or the mount is loose, fix it and reset calibration.")
+
+  def _save_calibration(self) -> None:
+    if not self.cal_snap:
+      return
+    try:
+      write_json_atomic(CAL_LAST, {"snap": self.cal_snap, "offline": self.offline, "mode": self.tuning, "updated": round(time.time())})
+    except OSError:
+      pass
+
+  def calibration(self) -> dict:
+    return calibration_report(self.cal_snap, self.offline, self.tuning)
 
   def _trim_track(self) -> None:
     rows = read_csv_all(TRACK_CSV)
@@ -495,7 +574,9 @@ class Telemetry:
       self.gps_service = get_gps_location_service(Params())
     except Exception:
       self.gps_service = "gpsLocation"
-    sm = messaging.SubMaster(["deviceState", "carState", "selfdriveState", "carControl", "controlsState", self.gps_service])
+    self._init_param_readers()
+    sm = messaging.SubMaster(["deviceState", "carState", "selfdriveState", "carControl", "controlsState", self.gps_service,
+                              *CAL_SERVICES])
     # Measure real elapsed time: SubMaster.update() returns as soon as ANY message arrives
     # (carState is 100 Hz), so a fixed dt would inflate trip time/distance ~20x.
     period = 1.0 / LOOP_HZ
@@ -513,6 +594,23 @@ class Telemetry:
         time.sleep(1.0)
       time.sleep(max(0.0, period - (time.monotonic() - t0)))
 
+  def _init_param_readers(self) -> None:
+    try:
+      from cereal import car
+      from openpilot.common.params import Params
+      p = Params()
+      def offline():
+        b = p.get("CarParams")
+        if not b:
+          return None
+        with car.CarParams.from_bytes(b) as cp:
+          return calibration.offline_torque(cp)
+      self.param_bool = p.get_bool
+      self.param_float = lambda k: p.get(k, return_default=True)
+      self.offline_reader = offline
+    except Exception as e:
+      print(f"telemetry: params unavailable: {e}", flush=True)
+
   def snapshot(self) -> dict:
     with self.lock:
       return dict(self.status)
@@ -525,6 +623,17 @@ class Telemetry:
 
   def map(self) -> dict:
     return map_data(read_csv_all(OVERRIDES_CSV), read_csv_all(DISENGAGE_CSV), read_csv_all(TRACK_CSV))
+
+
+def calibration_report(snap=None, offline=None, mode=None, from_file: bool = False) -> dict:
+  if from_file:
+    last = load_json(CAL_LAST)
+    snap, offline, mode = last.get("snap"), last.get("offline"), last.get("mode")
+  rows = read_csv_all(CAL_CSV)
+  rep = calibration.evaluate(snap, offline, mode, rows)
+  rep["history"] = [r for r in rows if r.get("event") == "trip"][-30:]
+  rep["events"] = [r for r in rows if r.get("event") != "trip"][-10:][::-1]
+  return rep
 
 
 def start() -> Telemetry:

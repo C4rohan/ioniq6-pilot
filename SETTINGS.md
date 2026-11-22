@@ -161,6 +161,15 @@ Some things to know:
   tune often; this build doesn't follow it automatically. A test checks that our copy matches
   StarPilot's recorded controller output number for number.
 
+## Calibration & steering health
+
+Nothing to enable. A bad or old camera calibration feels just like a bad steering tune, so check this
+card first when steering feels off. It shows the calibration status, how far the mount is turned or tilted
+compared with what openpilot allows, whether that moved since your recent drives, the wheel offset, and
+how far live steering learning has got. *Steering mode* says what is steering on the current drive; with
+StarPilot's Ioniq 6 controller on, it shows that controller's fixed tune, and the learned numbers on
+the card don't change its steering. Each drive adds one row to `/data/sp_calibration.csv`.
+
 ## Reverse camera view
 
 `enabled` (default true) shows the clean forward-camera view in reverse; `hide_overlays: false`

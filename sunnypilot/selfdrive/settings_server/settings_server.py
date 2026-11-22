@@ -6,6 +6,7 @@ Serves a phone-friendly page (stdlib http.server, no deps) on the device LAN:
   - live status (onroad, engaged, speed, model, trip)
   - editors for the custom-feature JSON configs
   - trip and disengagement logs
+  - calibration & steering-learning health
 Runs the telemetry thread (see telemetry.py).
 
 Safety scope is deliberately narrow:
@@ -134,6 +135,9 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div class="card"><h2>Settings</h2>
 <div class="tabs" id="tabs"></div><div id="editors"></div></div>
 
+<div class="card"><h2>Calibration &amp; steering health</h2><div id="calv" style="margin-bottom:8px">loading…</div>
+<div class="grid" id="calstats"></div><div id="caliss" style="margin-top:8px"></div><div id="calhist" style="margin-top:8px"></div>
+<div style="font-size:12px;color:var(--mut);margin-top:6px">A bad or stale calibration feels like a bad steering tune. Rule this out first. Updated every second while driving; offroad it shows the last drive.</div></div>
 <div class="card"><h2>Steering feedback</h2><div id="sfv" style="margin-bottom:6px">loading…</div><div id="sfchart" style="overflow-x:auto"></div><div id="sfmeta" style="font-size:12px;color:var(--mut);margin-top:6px"></div></div>
 <div class="card"><h2>Model scorecard</h2><div id="scv" style="margin-bottom:8px">loading…</div><div id="sct"></div><div style="font-size:12px;color:var(--mut);margin-top:6px">Ranked by your takeovers per 100 km (fewer is better), then disengagements. A model needs 20 km of your driving before it is ranked.</div></div>
 <div class="card"><h2>Takeover map</h2><div id="map" style="height:320px;border-radius:10px;border:1px solid var(--line);background:#0b0d11"></div><div style="font-size:12px;color:var(--mut);margin-top:6px"><span style="color:#f5b841">●</span> too weak <span style="color:#f87171">●</span> too strong <span style="color:#8b93a7">●</span> straight <span style="color:#60a5fa">◆</span> disengagement · lines are your recent drives</div></div>
@@ -173,6 +177,30 @@ function sfchart(b){const W=320,H=150,P=24,cols=["under","over","straight"],colr
 async function steer(){try{const d=JSON.parse(await get("/api/overrides"));const col={under:"#f5b841",over:"#f87171",ok:"#34d399",wait:"#8b93a7"}[d.level];
  $("sfv").innerHTML=`<b style="color:${col}">${d.verdict}</b>`;$("sfchart").innerHTML=sfchart(d.buckets);
  $("sfmeta").textContent=`${d.totals.under} too-weak · ${d.totals.over} too-strong · ${d.totals.straight} straight · ${d.lateral_km} km steered`+(d.per_100km!=null?` · ${d.per_100km} overrides/100 km`:"");}catch(e){}}
+function spark(vals,color,label,unit,lim){const W=300,H=56,P=4;const v=vals.filter(x=>!isNaN(x));if(v.length<2)return "";
+ let lo=Math.min(...v),hi=Math.max(...v);if(lim!=null){lo=Math.min(lo,-lim);hi=Math.max(hi,lim);}if(hi-lo<1e-6){hi+=1;lo-=1;}
+ const x=i=>P+i*(W-2*P)/(vals.length-1),y=t=>H-P-(t-lo)/(hi-lo)*(H-2*P);
+ const pts=vals.map((t,i)=>isNaN(t)?null:x(i)+","+y(t)).filter(Boolean).join(" ");
+ const z=lim!=null?`<line x1="${P}" x2="${W-P}" y1="${y(lim)}" y2="${y(lim)}" stroke="#f87171" stroke-dasharray="3 3" stroke-opacity=".6"/><line x1="${P}" x2="${W-P}" y1="${y(-lim)}" y2="${y(-lim)}" stroke="#f87171" stroke-dasharray="3 3" stroke-opacity=".6"/>`:"";
+ return `<div style="font-size:12px;color:var(--mut);margin-top:6px">${label}: <b style="color:var(--txt)">${v[v.length-1]}${unit}</b> (last ${vals.length} drives)</div><svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:520px">${z}<polyline fill="none" stroke="${color}" stroke-width="2" points="${pts}"/></svg>`;}
+async function calib(){try{const d=JSON.parse(await get("/api/calibration"));const col={bad:"#f87171",warn:"#fbbf24",wait:"#8b93a7",ok:"#34d399"}[d.level];
+ $("calv").innerHTML=`<b style="color:${col}">${d.verdict}</b>`;const s=d.snap;
+ if(!s){$("calstats").innerHTML="";$("caliss").innerHTML="";$("calhist").innerHTML="";return;}
+ const st={calibrated:"on",recalibrating:"wx",uncalibrated:"wx",invalid:"off"}[s.status]||"wx";
+ const stat=(k,v,sub)=>`<div class="stat"><span>${k}</span><b style="font-size:17px">${v}</b><span>${sub||""}</span></div>`;
+ const lf=d.offline?`baked ${d.offline.laf}${s.laf_delta_pct!=null?" · "+(s.laf_delta_pct>0?"+":"")+s.laf_delta_pct+"%":""}`:"";
+ $("calstats").innerHTML=stat("Calibration",`<span class="pill ${st}">${s.status}</span>`,s.status==="calibrated"?"":s.cal_pct+"%")+
+  stat("Mount yaw",(s.yaw_deg>0?"+":"")+s.yaw_deg+"°","limit ±"+d.limits.yaw+"°")+
+  stat("Mount pitch",(s.pitch_deg>0?"+":"")+s.pitch_deg+"°",`limit ${d.limits.pitch[0]}° to +${d.limits.pitch[1]}°`)+
+  stat("Wheel offset",(s.angle_offset_deg>0?"+":"")+s.angle_offset_deg+"°",s.params_valid?"steer ratio "+s.steer_ratio:"estimating")+
+  stat("Steering strength",s.torque_valid?s.laf:"learning",s.torque_valid?lf:d.torque_progress+"% of data")+
+  stat("Steering mode",`<span style="font-size:14px">${d.mode_label}</span>`,"");
+ const ic={bad:"⛔",warn:"⚠️",wait:"⏳",info:"ℹ️"};
+ $("caliss").innerHTML=d.issues.map(i=>`<div style="padding:4px 0;font-size:13px">${ic[i.level]||""} ${i.text}</div>`).join("")+
+  (d.events.length?"<div style='font-size:12px;color:var(--mut);margin-top:4px'>Mid-drive resets: "+d.events.map(e=>e.time+" "+e.event).join(" · ")+"</div>":"");
+ const h=d.history,n=k=>h.map(r=>parseFloat(r[k]));
+ $("calhist").innerHTML=h.length>=2?spark(n("yaw_deg"),"#4f8cff","Mount yaw","°",d.limits.yaw)+spark(n("pitch_deg"),"#a78bfa","Mount pitch","°")+
+  spark(n("angle_offset_deg"),"#f5b841","Wheel offset","°")+spark(n("laf"),"#34d399","Learned steering strength",""):"";}catch(e){console.error("calibration",e)}}
 async function scorecard(){try{const d=JSON.parse(await get("/api/scorecard"));$("scv").innerHTML="<b>"+d.verdict+"</b>";
  $("sct").innerHTML=d.rows.length?"<div style='overflow:auto'><table><tr><th>model</th><th>km</th><th>takeovers /100 km</th><th>disengage /100 km</th><th>engaged</th><th>weak / strong</th></tr>"+
   d.rows.map(r=>`<tr style="${r.model===d.best?"color:#34d399;font-weight:600":r.enough?"":"color:var(--mut)"}"><td>${r.model}${r.model===d.best?" ★":""}</td><td>${r.km}</td>`+
@@ -209,7 +237,7 @@ async function editor(name){const box=$("editors");box.innerHTML="";
 CFGS.forEach(n=>{const t=document.createElement("span");t.className="tab";t.dataset.n=n;t.textContent=n;t.onclick=()=>editor(n);$("tabs").appendChild(t)});
 $("savebtn").onclick=async()=>{$("savemsg").className="msg";$("savemsg").textContent="Saving…";try{const r=await fetch("/api/clip",{method:"POST"});const d=await r.json();
  $("savemsg").className="msg "+(d.ok?"ok":"err");$("savemsg").textContent=d.ok?`Saved ${d.segments.length} min (${d.files.length} files)`:d.error;clipsList();}catch(e){$("savemsg").className="msg err";$("savemsg").textContent="Save failed";}};
-editor("sentry");status();logs();sentry();steer();clipsList();scorecard();takeoverMap();setInterval(steer,30000);setInterval(scorecard,60000);setInterval(takeoverMap,60000);setInterval(clipsList,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
+editor("sentry");status();logs();sentry();calib();setInterval(calib,5000);steer();clipsList();scorecard();takeoverMap();setInterval(steer,30000);setInterval(scorecard,60000);setInterval(takeoverMap,60000);setInterval(clipsList,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
 </script></body></html>"""
 
 
@@ -244,6 +272,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(TELEMETRY.overrides_summary())
       lat_km = float(telemetry.load_json(telemetry.STEER_STATS).get("lateral_km", 0.0) or 0.0)
       return self._json(telemetry.summarize_overrides(telemetry.read_csv_all(telemetry.OVERRIDES_CSV), lat_km))
+    if u.path == "/api/calibration":
+      return self._json(TELEMETRY.calibration() if TELEMETRY else telemetry.calibration_report(from_file=True))
     if u.path == "/api/scorecard":
       return self._json(TELEMETRY.scorecard() if TELEMETRY else telemetry.model_scorecard(
         telemetry.read_csv_all(telemetry.TRIPS_CSV), telemetry.read_csv_all(telemetry.OVERRIDES_CSV)))

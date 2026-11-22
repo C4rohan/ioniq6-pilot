@@ -5,6 +5,7 @@ PATHS = {
   "STEER_STATS": "sp_steer_stats.json", "NOTIFY_CONFIG": "sunnypilot_notify.json",
   "STEER_CONFIG": "sunnypilot_steer_feedback.json", "TRACK_CSV": "sp_track.csv",
   "CLIPS_CONFIG": "sunnypilot_clips.json", "CLIPS_DIR": "saved_clips",
+  "CAL_CSV": "sp_calibration.csv", "CAL_LAST": "sp_calibration_last.json",
 }
 
 
