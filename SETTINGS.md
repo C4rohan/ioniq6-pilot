@@ -170,6 +170,20 @@ how far live steering learning has got. *Steering mode* says what is steering on
 StarPilot's Ioniq 6 controller on, it shows that controller's fixed tune, and the learned numbers on
 the card don't change its steering. Each drive adds one row to `/data/sp_calibration.csv`.
 
+## Curve log
+
+Nothing to enable. For every curve openpilot steers through above 40 km/h (with no turn signal on), it
+records which way the curve went and where the car sat in its lane at the entry, middle and exit,
+measured from the driving model's own lane lines. It also records whether the steering turned as much
+as it wanted, what lane centering did, and which steering controller was running. Each drive also gets
+one "straights" row: if the car sits off-centre by the same amount on straights as in curves, the
+device is probably mounted off-centre, and the steering isn't the cause.
+
+The **Curve log** card on the phone page groups the last 10 drives by setup (which controller, and lane
+centering on or off), so you can compare a drive with a change against one without it. Each side needs
+3 curves with clear lane lines before it's summarised. To download the raw rows, use the *download CSV*
+link or `http://<device-ip>:8088/api/curves.csv`. The last 30 drives are kept in `/data/sp_curves.csv`.
+
 ## Reverse camera view
 
 `enabled` (default true) shows the clean forward-camera view in reverse; `hide_overlays: false`

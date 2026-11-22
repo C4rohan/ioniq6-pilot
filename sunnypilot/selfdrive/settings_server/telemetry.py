@@ -15,13 +15,17 @@ It's a heuristic: a trend over many overrides is meaningful, a single one isn't.
 Calibration health (calibration.py): mount angle vs calibrationd's limits, drift between drives,
 steering-angle offset, and live torque learning progress; alerts when calibration resets mid-drive.
 
+Curve log (curves.py): one row per curve openpilot steers through (left/right, speed, where the car
+sits in the lane at entry/middle/exit, steering delivered vs asked, lane centering, controller),
+plus a straight-road baseline per drive.
+
 Also: GPS position on each takeover/disengagement and a sparse drive track (for the takeover map),
 a per-model scorecard, and auto-saved dashcam clips after hard braking, hard steering takeovers, or
 unexpected disengagements.
 
 Files (under /data, never in the repo):
   sp_trips.csv, sp_disengagements.csv, sp_overrides.csv, sp_track.csv, sp_steer_stats.json,
-  sp_calibration.csv, sp_calibration_last.json
+  sp_calibration.csv, sp_calibration_last.json, sp_curves.csv
   sunnypilot_notify.json, sunnypilot_steer_feedback.json (optional)
 """
 import csv
@@ -32,7 +36,7 @@ import time
 import urllib.request
 from datetime import datetime
 
-from openpilot.sunnypilot.selfdrive.settings_server import calibration
+from openpilot.sunnypilot.selfdrive.settings_server import calibration, curves
 
 DATA = os.environ.get("SUNNYPILOT_DATA", "/data")
 TRIPS_CSV = os.path.join(DATA, "sp_trips.csv")
@@ -48,6 +52,9 @@ CAL_CSV = os.path.join(DATA, "sp_calibration.csv")
 CAL_LAST = os.path.join(DATA, "sp_calibration_last.json")
 CAL_PERIOD_S = 1.0
 CAL_SERVICES = ("liveCalibration", "liveParameters", "liveTorqueParameters")
+CURVES_CSV = os.path.join(DATA, "sp_curves.csv")
+CURVES_KEEP_TRIPS = 30
+CURVE_STATUS_PERIOD_S = 1.0
 
 LOOP_HZ = 10
 CONFIG_PERIOD = 5.0
@@ -353,6 +360,11 @@ class Telemetry:
     self.cal_prev_status = None
     self.cal_alerted: set = set()
     self.param_bool = self.param_float = self.offline_reader = None   # set in run(); tests leave them None
+    self.curve_tracker = curves.CurveTracker()
+    self.curve_status_at = -1e9
+    self.lc_snap = None
+    self.steer_controller = "sunnypilot"
+    self.curves_broken = False
 
   def _reload_configs(self, now):
     if now - self.cfg_read < CONFIG_PERIOD:
@@ -427,8 +439,11 @@ class Telemetry:
     if started and not self.prev_started:
       self.trip = Trip(wall)
       self.offline, self.cal_prev_status, self.cal_alerted = None, None, set()   # the baked tune can change with an update
+    if started and not self.prev_started:
+      self.curve_tracker, self.curves_broken = curves.CurveTracker(), False   # an error only costs that one drive
     if not started and self.prev_started and self.trip:
       if self.trip.dist_m >= MIN_TRIP_M:
+        self._curves_trip_end(wall)
         append_csv(TRIPS_CSV, TRIP_FIELDS, self.trip.row())
         if self.notify_cfg.get("notify_trips", True):
           send_notification(self.trip.summary())
@@ -487,6 +502,9 @@ class Telemetry:
                                            "time": datetime.fromtimestamp(wall).strftime("%H:%M:%S"),
                                            "lat": lat_s, "lon": lon_s, "kph": round(v * MPS_TO_KPH)})
 
+    if started and self.trip:
+      self._curve_step(sm, cs, ctl, lat_active, v, dt, now, wall)
+
     if started and now - self.cal_at >= CAL_PERIOD_S:
       self.cal_at = now
       self._calibration_step(sm, wall)
@@ -503,6 +521,50 @@ class Telemetry:
                           "trip_km": round(self.trip.dist_m / 1000.0, 2) if self.trip else 0.0,
                           "trip_engaged_pct": self.trip.row()["engaged_pct"] if self.trip else 0,
                           "updated": round(wall)})
+
+  # ------------------------------------------------------------------------- curve log
+  def _curve_ctx(self, wall: float) -> dict:
+    return {"time": datetime.fromtimestamp(wall).strftime("%Y-%m-%d %H:%M:%S"),
+            "trip": datetime.fromtimestamp(self.trip.start).strftime("%Y%m%d-%H%M%S") if self.trip else "",
+            "controller": self.steer_controller, "model": self.trip.model if self.trip else active_model_name()}
+
+  def _curve_step(self, sm, cs, ctl, lat_active: bool, v: float, dt: float, now: float, wall: float) -> None:
+    if self.curves_broken:
+      return
+    try:
+      if now - self.curve_status_at >= CURVE_STATUS_PERIOD_S:
+        self.curve_status_at = now
+        self.lc_snap = curves.read_json(curves.LANE_STATUS)
+        st = calibration.read_steering_status()
+        self.steer_controller = st["controller"] if st and st.get("controller") == calibration.STARPILOT and not st.get("failed") \
+          else "sunnypilot"
+      try:
+        model = sm["modelV2"]
+      except (KeyError, IndexError, TypeError):
+        model = None
+      row = self.curve_tracker.update(
+        dt=dt, v=v, lat_active=lat_active, blinker=bool(getattr(cs, "leftBlinker", False) or getattr(cs, "rightBlinker", False)),
+        pressed=bool(cs.steeringPressed), desired_curv=float(ctl.desiredCurvature), actual_curv=float(ctl.curvature),
+        lane=curves.lane_position(model) if model is not None else None, lc=curves.lane_centering_state(self.lc_snap, now),
+        ctx=self._curve_ctx(wall))
+      if row:
+        append_csv(CURVES_CSV, curves.FIELDS, row)
+    except Exception as e:                 # never let the curve log break the trip/takeover logs
+      print(f"telemetry: curve log disabled: {e}", flush=True)
+      self.curves_broken = True
+
+  def _curves_trip_end(self, wall: float) -> None:
+    if self.curves_broken:
+      return
+    try:
+      for row in self.curve_tracker.trip_end(self._curve_ctx(wall)):
+        append_csv(CURVES_CSV, curves.FIELDS, row)
+      trim_by_trip(CURVES_CSV, curves.FIELDS, CURVES_KEEP_TRIPS)
+    except Exception as e:
+      print(f"telemetry: curve log trip end failed: {e}", flush=True)
+
+  def curves(self) -> dict:
+    return curves.summarize(read_csv_all(CURVES_CSV))
 
   # ------------------------------------------------------------------------- calibration health
 
@@ -553,18 +615,7 @@ class Telemetry:
     return calibration_report(self.cal_snap, self.offline, self.tuning)
 
   def _trim_track(self) -> None:
-    rows = read_csv_all(TRACK_CSV)
-    trips = list(dict.fromkeys(r.get("trip") for r in rows))
-    if len(trips) <= TRACK_KEEP_TRIPS:
-      return
-    keep = set(trips[-TRACK_KEEP_TRIPS:])
-    with open(TRACK_CSV + ".tmp", "w", newline="") as f:
-      w = csv.DictWriter(f, fieldnames=TRACK_FIELDS, extrasaction="ignore")
-      w.writeheader()
-      for r in rows:
-        if r.get("trip") in keep:
-          w.writerow(r)
-    os.replace(TRACK_CSV + ".tmp", TRACK_CSV)
+    trim_by_trip(TRACK_CSV, TRACK_FIELDS, TRACK_KEEP_TRIPS)
 
   def run(self):
     import cereal.messaging as messaging
@@ -576,7 +627,7 @@ class Telemetry:
       self.gps_service = "gpsLocation"
     self._init_param_readers()
     sm = messaging.SubMaster(["deviceState", "carState", "selfdriveState", "carControl", "controlsState", self.gps_service,
-                              *CAL_SERVICES])
+                              "modelV2", *CAL_SERVICES])
     # Measure real elapsed time: SubMaster.update() returns as soon as ANY message arrives
     # (carState is 100 Hz), so a fixed dt would inflate trip time/distance ~20x.
     period = 1.0 / LOOP_HZ
@@ -623,6 +674,22 @@ class Telemetry:
 
   def map(self) -> dict:
     return map_data(read_csv_all(OVERRIDES_CSV), read_csv_all(DISENGAGE_CSV), read_csv_all(TRACK_CSV))
+
+
+def trim_by_trip(path: str, fields: list, keep: int) -> None:
+  """Keep only the rows of the last `keep` drives (rows carry a "trip" id)."""
+  rows = read_csv_all(path)
+  trips = list(dict.fromkeys(r.get("trip") for r in rows))
+  if len(trips) <= keep:
+    return
+  kept = set(trips[-keep:])
+  with open(path + ".tmp", "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+      if r.get("trip") in kept:
+        w.writerow(r)
+  os.replace(path + ".tmp", path)
 
 
 def calibration_report(snap=None, offline=None, mode=None, from_file: bool = False) -> dict:

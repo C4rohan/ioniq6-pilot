@@ -7,6 +7,7 @@ Serves a phone-friendly page (stdlib http.server, no deps) on the device LAN:
   - editors for the custom-feature JSON configs
   - trip and disengagement logs
   - calibration & steering-learning health
+  - curve log (where the car sits in its lane through left and right curves)
 Runs the telemetry thread (see telemetry.py).
 
 Safety scope is deliberately narrow:
@@ -26,7 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.sunnypilot.selfdrive.settings_server import telemetry, clips
+from openpilot.sunnypilot.selfdrive.settings_server import telemetry, clips, curves
 
 PORT = 8088
 MASK = "••••••••"
@@ -138,6 +139,8 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div class="card"><h2>Calibration &amp; steering health</h2><div id="calv" style="margin-bottom:8px">loading…</div>
 <div class="grid" id="calstats"></div><div id="caliss" style="margin-top:8px"></div><div id="calhist" style="margin-top:8px"></div>
 <div style="font-size:12px;color:var(--mut);margin-top:6px">A bad or stale calibration feels like a bad steering tune. Rule this out first. Updated every second while driving; offroad it shows the last drive.</div></div>
+<div class="card"><h2>Curve log</h2><div id="cvv" style="margin-bottom:8px">loading…</div><div id="cvt"></div>
+<div style="font-size:12px;color:var(--mut);margin-top:6px">Where the car sits in its lane through curves, from the model's lane lines (above 40 km/h, openpilot steering, no turn signal). Middle = the middle third of the curve. "Steered vs asked": negative means it turned less than it wanted, so it drifts to the outside. Straights are the baseline: the same offset everywhere points at the mount, not the steering. Last 10 drives · <a href="/api/curves.csv" style="color:var(--acc)">download CSV</a></div></div>
 <div class="card"><h2>Steering feedback</h2><div id="sfv" style="margin-bottom:6px">loading…</div><div id="sfchart" style="overflow-x:auto"></div><div id="sfmeta" style="font-size:12px;color:var(--mut);margin-top:6px"></div></div>
 <div class="card"><h2>Model scorecard</h2><div id="scv" style="margin-bottom:8px">loading…</div><div id="sct"></div><div style="font-size:12px;color:var(--mut);margin-top:6px">Ranked by your takeovers per 100 km (fewer is better), then disengagements. A model needs 20 km of your driving before it is ranked.</div></div>
 <div class="card"><h2>Takeover map</h2><div id="map" style="height:320px;border-radius:10px;border:1px solid var(--line);background:#0b0d11"></div><div style="font-size:12px;color:var(--mut);margin-top:6px"><span style="color:#f5b841">●</span> too weak <span style="color:#f87171">●</span> too strong <span style="color:#8b93a7">●</span> straight <span style="color:#60a5fa">◆</span> disengagement · lines are your recent drives</div></div>
@@ -201,6 +204,12 @@ async function calib(){try{const d=JSON.parse(await get("/api/calibration"));con
  const h=d.history,n=k=>h.map(r=>parseFloat(r[k]));
  $("calhist").innerHTML=h.length>=2?spark(n("yaw_deg"),"#4f8cff","Mount yaw","°",d.limits.yaw)+spark(n("pitch_deg"),"#a78bfa","Mount pitch","°")+
   spark(n("angle_offset_deg"),"#f5b841","Wheel offset","°")+spark(n("laf"),"#34d399","Learned steering strength",""):"";}catch(e){console.error("calibration",e)}}
+function cvside(x){if(x==null)return "–";if(Math.abs(x)<0.02)return "centred";return Math.abs(x).toFixed(2)+" m "+(x>0?"right →":"← left");}
+async function curvelog(){try{const d=JSON.parse(await get("/api/curves"));$("cvv").innerHTML="<b>"+d.verdict+"</b>";
+ $("cvt").innerHTML=d.setups.map(s=>`<div style="margin-top:8px;font-size:13px"><b>${s.setup}</b> <span style="color:var(--mut)">· ${s.trips} drive${s.trips===1?"":"s"}</span></div>`+
+  "<div style='overflow:auto'><table><tr><th></th><th>curves</th><th>entry</th><th>middle</th><th>exit</th><th>steered vs asked</th><th>takeovers</th></tr>"+
+  ["right","left"].map(k=>{const r=s[k];return `<tr style="${r.enough?"":"color:var(--mut)"}"><td>${k} curves</td><td>${r.curves}</td><td>${cvside(r.entry)}</td><td><b>${cvside(r.sits)}</b></td><td>${cvside(r.exit)}</td><td>${r.steer_gap==null?"–":(r.steer_gap>0?"+":"")+r.steer_gap.toFixed(2)+" m/s²"}</td><td>${r.takeovers}</td></tr>`;}).join("")+
+  `<tr><td>straights</td><td>${s.straight.drives} drive${s.straight.drives===1?"":"s"}</td><td></td><td><b>${cvside(s.straight.sits)}</b></td><td></td><td></td><td></td></tr></table></div>`).join("");}catch(e){console.error("curves",e)}}
 async function scorecard(){try{const d=JSON.parse(await get("/api/scorecard"));$("scv").innerHTML="<b>"+d.verdict+"</b>";
  $("sct").innerHTML=d.rows.length?"<div style='overflow:auto'><table><tr><th>model</th><th>km</th><th>takeovers /100 km</th><th>disengage /100 km</th><th>engaged</th><th>weak / strong</th></tr>"+
   d.rows.map(r=>`<tr style="${r.model===d.best?"color:#34d399;font-weight:600":r.enough?"":"color:var(--mut)"}"><td>${r.model}${r.model===d.best?" ★":""}</td><td>${r.km}</td>`+
@@ -237,7 +246,7 @@ async function editor(name){const box=$("editors");box.innerHTML="";
 CFGS.forEach(n=>{const t=document.createElement("span");t.className="tab";t.dataset.n=n;t.textContent=n;t.onclick=()=>editor(n);$("tabs").appendChild(t)});
 $("savebtn").onclick=async()=>{$("savemsg").className="msg";$("savemsg").textContent="Saving…";try{const r=await fetch("/api/clip",{method:"POST"});const d=await r.json();
  $("savemsg").className="msg "+(d.ok?"ok":"err");$("savemsg").textContent=d.ok?`Saved ${d.segments.length} min (${d.files.length} files)`:d.error;clipsList();}catch(e){$("savemsg").className="msg err";$("savemsg").textContent="Save failed";}};
-editor("sentry");status();logs();sentry();calib();setInterval(calib,5000);steer();clipsList();scorecard();takeoverMap();setInterval(steer,30000);setInterval(scorecard,60000);setInterval(takeoverMap,60000);setInterval(clipsList,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
+editor("sentry");status();logs();sentry();calib();setInterval(calib,5000);curvelog();setInterval(curvelog,30000);steer();clipsList();scorecard();takeoverMap();setInterval(steer,30000);setInterval(scorecard,60000);setInterval(takeoverMap,60000);setInterval(clipsList,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
 </script></body></html>"""
 
 
@@ -274,6 +283,21 @@ class Handler(BaseHTTPRequestHandler):
       return self._json(telemetry.summarize_overrides(telemetry.read_csv_all(telemetry.OVERRIDES_CSV), lat_km))
     if u.path == "/api/calibration":
       return self._json(TELEMETRY.calibration() if TELEMETRY else telemetry.calibration_report(from_file=True))
+    if u.path == "/api/curves":
+      return self._json(TELEMETRY.curves() if TELEMETRY else curves.summarize(telemetry.read_csv_all(telemetry.CURVES_CSV)))
+    if u.path == "/api/curves.csv":
+      try:
+        with open(telemetry.CURVES_CSV, "rb") as fh:
+          data = fh.read()
+      except FileNotFoundError:
+        data = (",".join(curves.FIELDS) + "\n").encode()
+      self.send_response(200)
+      self.send_header("Content-Type", "text/csv")
+      self.send_header("Content-Disposition", 'attachment; filename="sp_curves.csv"')
+      self.send_header("Content-Length", str(len(data)))
+      self.end_headers()
+      self.wfile.write(data)
+      return
     if u.path == "/api/scorecard":
       return self._json(TELEMETRY.scorecard() if TELEMETRY else telemetry.model_scorecard(
         telemetry.read_csv_all(telemetry.TRIPS_CSV), telemetry.read_csv_all(telemetry.OVERRIDES_CSV)))
