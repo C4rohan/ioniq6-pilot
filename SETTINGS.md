@@ -162,6 +162,16 @@ Some things to know:
   tune often; this build doesn't follow it automatically. A test checks that our copy matches
   StarPilot's recorded controller output number for number.
 
+## Drive stats
+
+Nothing to enable. The **Drive stats** card has five tabs: Overview, This week, Records, Models and
+Recent drives. It's modelled on StarPilot's Galaxy stats, but uses this build's own drive log, so
+it needs no extra processing. "Steering-only" is time openpilot steered while cruise wasn't engaged.
+"Attention alerts" count openpilot's second distraction warning and its final "unresponsive" warning,
+counted the same way Galaxy counts them. Drives logged before this update don't have the steering and
+attention numbers; they're left out of those stats instead of counting as zero. "Most engaged day"
+only counts days with at least 10 minutes of driving.
+
 ## Calibration & steering health
 
 Nothing to enable. A bad or old camera calibration feels just like a bad steering tune, so check this

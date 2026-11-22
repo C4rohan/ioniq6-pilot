@@ -6,6 +6,7 @@ Serves a phone-friendly page (stdlib http.server, no deps) on the device LAN:
   - live status (onroad, engaged, speed, model, trip)
   - editors for the custom-feature JSON configs
   - trip and disengagement logs
+  - drive stats (Galaxy-style: totals, this week, personal records, per-model, recent drives)
   - calibration & steering-learning health
   - curve log (where the car sits in its lane through left and right curves)
   - drive-data upload to the owner's private GitHub repo (uploader.py)
@@ -28,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.sunnypilot.selfdrive.settings_server import telemetry, clips, curves, uploader
+from openpilot.sunnypilot.selfdrive.settings_server import telemetry, clips, curves, stats, uploader
 
 PORT = 8088
 MASK = "••••••••"
@@ -135,6 +136,8 @@ footer{color:var(--mut);font-size:12px;text-align:center;padding:14px}
 <div style="margin-top:10px;font-size:14px"><span style="color:var(--mut)">Lane centering:</span> <span id="lc">—</span></div>
 <div style="margin-top:4px;font-size:14px"><span style="color:var(--mut)">Steering controller:</span> <span id="stc">—</span></div></div>
 
+<div class="card"><h2>Drive stats</h2><div class="tabs" id="dstabs"></div><div id="dsbody">loading…</div>
+<div style="font-size:12px;color:var(--mut);margin-top:6px">From your drive log on this device. Steering-only = openpilot steering while cruise isn't engaged. Attention alerts count openpilot's second distraction warning and its final "unresponsive" warning. Drives from before an update may not have every number.</div></div>
 <div class="card"><h2>Settings</h2>
 <div class="tabs" id="tabs"></div><div id="editors"></div></div>
 
@@ -218,6 +221,28 @@ async function upload(){try{const d=JSON.parse(await get("/api/upload"));const c
  $("upv").innerHTML=`<b style="color:${col}">${d.text}</b>`;
  $("upk").innerHTML=d.pubkey?`<div style="font-size:12px;color:var(--mut);margin-top:8px">Device key (tap to select, then copy):</div><textarea id="upkey" readonly rows="3" style="width:100%;font-family:monospace;font-size:11px;background:#0b0d11;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px" onclick="this.select();try{document.execCommand('copy')}catch(e){}"></textarea>`:"";
  if(d.pubkey)$("upkey").value=d.pubkey;}catch(e){console.error("upload",e)}}
+let DS=null,DSTAB="overview";
+const dsn=(x,u)=>x==null?"–":x+(u?" "+u:"");
+const dsh=m=>m==null?"–":(m>=60?Math.floor(m/60)+" h "+Math.round(m%60)+" min":Math.round(m)+" min");
+function dsdrives(rows){if(!rows.length)return "<div style='color:var(--mut)'>no drives yet</div>";
+ return "<div style='overflow:auto'><table><tr><th>start</th><th>km</th><th>time</th><th>engaged</th><th>steering</th><th>steering-only</th><th>alerts</th><th>model</th></tr>"+
+  rows.map(r=>`<tr><td>${r.start}</td><td>${r.km}</td><td>${dsh(r.minutes)}</td><td>${dsn(r.engaged_pct,"%")}</td><td>${dsn(r.steer_pct,"%")}</td><td>${dsh(r.aol_min)}</td><td>${r.distracted==null?"–":r.distracted+" / "+r.unresponsive}</td><td>${r.model}</td></tr>`).join("")+"</table></div>";}
+function dsweek(w){const W=320,H=120,P=18,mx=Math.max(1,...w.days.map(d=>d.km)),bw=(W-2*P)/7;
+ const bars=w.days.map((d,i)=>{const h=(H-2*P)*d.km/mx,x=P+i*bw+4,y=H-P-h;return `<rect x="${x}" y="${y}" width="${bw-8}" height="${Math.max(h,1)}" rx="3" fill="#4f8cff"${d.km?"":" fill-opacity='.25'"}/><text x="${x+(bw-8)/2}" y="${H-4}" fill="#8b93a7" font-size="10" text-anchor="middle">${d.label}</text>`+(d.km?`<text x="${x+(bw-8)/2}" y="${y-3}" fill="#e8eaf0" font-size="9" text-anchor="middle">${Math.round(d.km)}</text>`:"");}).join("");
+ return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:520px">${bars}</svg>`;}
+function dsrender(){const d=DS;if(!d)return;const st=(k,v,sub)=>`<div class="stat"><span>${k}</span><b style="font-size:17px">${v}</b><span>${sub||""}</span></div>`;
+ const t=d.totals,w=d.week,p=d.past_week;let h="";
+ if(DSTAB==="overview")h=`<div class="grid">${st("Distance",dsn(t.km,"km"),t.drives+" drives")+st("Driving time",dsn(t.hours,"h"),"")+st("Engaged",dsn(t.engaged_pct,"%"),"of driving time")+
+  st("openpilot steering",dsn(t.steer_pct,"%"),"of driving time")+st("Steering-only",dsh(t.aol_min),"steering without cruise")+
+  st("Disengagements",dsn(t.disengagements_per_100km),"per 100 km")+st("Takeovers",dsn(t.takeovers_per_100km),"per 100 km")+st("Last 7 days",dsn(p.km,"km"),p.drives+" drives")}</div>`+
+  (d.last_drive?`<div style="font-size:13px;margin-top:10px"><b>Last drive</b> ${d.last_drive.start}: ${d.last_drive.km} km in ${dsh(d.last_drive.minutes)}, ${dsn(d.last_drive.engaged_pct,"%")} engaged</div>`:"");
+ if(DSTAB==="week")h=dsweek(w)+`<div class="grid" style="margin-top:6px">${st("This week",dsn(w.km,"km"),w.drives+" drives")+st("Time",dsn(w.hours,"h"),"")+st("Engaged",dsn(w.engaged_pct,"%"),"")+st("Steering-only",dsh(w.aol_min),"")}</div>`;
+ if(DSTAB==="records")h=`<div class="grid">${d.records.map(r=>st(r.label,r.value==null?"–":r.value+" "+r.unit,r.when||"")).join("")||"<div style='color:var(--mut)'>no drives yet</div>"}</div>`;
+ if(DSTAB==="models")h=d.models.length?"<div style='overflow:auto'><table><tr><th>model</th><th>km</th><th>hours</th><th>drives</th></tr>"+d.models.map(m=>`<tr><td>${m.name}</td><td>${m.km}</td><td>${m.hours}</td><td>${m.drives}</td></tr>`).join("")+"</table></div>":"<div style='color:var(--mut)'>no drives yet</div>";
+ if(DSTAB==="drives")h=dsdrives(d.recent);
+ $("dsbody").innerHTML=h;
+ $("dstabs").innerHTML=[["overview","Overview"],["week","This week"],["records","Records"],["models","Models"],["drives","Recent drives"]].map(([k,l])=>`<span class="tab${k===DSTAB?" act":""}" onclick="DSTAB='${k}';dsrender()">${l}</span>`).join("");}
+async function drivestats(){try{DS=JSON.parse(await get("/api/stats"));dsrender();}catch(e){console.error("stats",e)}}
 async function scorecard(){try{const d=JSON.parse(await get("/api/scorecard"));$("scv").innerHTML="<b>"+d.verdict+"</b>";
  $("sct").innerHTML=d.rows.length?"<div style='overflow:auto'><table><tr><th>model</th><th>km</th><th>takeovers /100 km</th><th>disengage /100 km</th><th>engaged</th><th>weak / strong</th></tr>"+
   d.rows.map(r=>`<tr style="${r.model===d.best?"color:#34d399;font-weight:600":r.enough?"":"color:var(--mut)"}"><td>${r.model}${r.model===d.best?" ★":""}</td><td>${r.km}</td>`+
@@ -254,7 +279,7 @@ async function editor(name){const box=$("editors");box.innerHTML="";
 CFGS.forEach(n=>{const t=document.createElement("span");t.className="tab";t.dataset.n=n;t.textContent=n;t.onclick=()=>editor(n);$("tabs").appendChild(t)});
 $("savebtn").onclick=async()=>{$("savemsg").className="msg";$("savemsg").textContent="Saving…";try{const r=await fetch("/api/clip",{method:"POST"});const d=await r.json();
  $("savemsg").className="msg "+(d.ok?"ok":"err");$("savemsg").textContent=d.ok?`Saved ${d.segments.length} min (${d.files.length} files)`:d.error;clipsList();}catch(e){$("savemsg").className="msg err";$("savemsg").textContent="Save failed";}};
-editor("sentry");status();logs();sentry();calib();setInterval(calib,5000);curvelog();setInterval(curvelog,30000);upload();setInterval(upload,15000);steer();clipsList();scorecard();takeoverMap();setInterval(steer,30000);setInterval(scorecard,60000);setInterval(takeoverMap,60000);setInterval(clipsList,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
+editor("sentry");status();logs();sentry();calib();setInterval(calib,5000);curvelog();setInterval(curvelog,30000);drivestats();setInterval(drivestats,60000);upload();setInterval(upload,15000);steer();clipsList();scorecard();takeoverMap();setInterval(steer,30000);setInterval(scorecard,60000);setInterval(takeoverMap,60000);setInterval(clipsList,30000);setInterval(status,2000);setInterval(logs,15000);setInterval(sentry,10000);
 </script></body></html>"""
 
 
@@ -291,6 +316,9 @@ class Handler(BaseHTTPRequestHandler):
       return self._json(telemetry.summarize_overrides(telemetry.read_csv_all(telemetry.OVERRIDES_CSV), lat_km))
     if u.path == "/api/calibration":
       return self._json(TELEMETRY.calibration() if TELEMETRY else telemetry.calibration_report(from_file=True))
+    if u.path == "/api/stats":
+      return self._json(TELEMETRY.drive_stats() if TELEMETRY else stats.summarize(
+        telemetry.read_csv_all(telemetry.TRIPS_CSV), telemetry.read_csv_all(telemetry.OVERRIDES_CSV)))
     if u.path == "/api/upload":
       return self._json(uploader.read_status(config_path=CONFIGS["upload"][0]))
     if u.path == "/api/curves":

@@ -36,7 +36,7 @@ import time
 import urllib.request
 from datetime import datetime
 
-from openpilot.sunnypilot.selfdrive.settings_server import calibration, curves
+from openpilot.sunnypilot.selfdrive.settings_server import calibration, curves, stats
 
 DATA = os.environ.get("SUNNYPILOT_DATA", "/data")
 TRIPS_CSV = os.path.join(DATA, "sp_trips.csv")
@@ -63,7 +63,8 @@ MIN_TRIP_M = 200.0
 MPS_TO_KPH = 3.6
 OVERRIDE_DEBOUNCE_S = 2.0
 
-TRIP_FIELDS = ["start", "end", "minutes", "km", "max_kph", "engaged_pct", "disengagements", "model"]
+TRIP_FIELDS = ["start", "end", "minutes", "km", "max_kph", "engaged_pct", "disengagements", "model",
+               "steer_pct", "aol_min", "distracted", "unresponsive"]
 DIS_FIELDS = ["time", "kph", "gas", "brake", "steer", "standstill", "trip_km", "lat", "lon", "model"]
 OVR_FIELDS = ["time", "kph", "kind", "lat_accel", "desired_curv", "actual_curv", "torque", "model", "lat", "lon"]
 TRACK_FIELDS = ["trip", "time", "lat", "lon", "kph"]
@@ -281,18 +282,29 @@ def map_data(overrides: list[dict], disengagements: list[dict], track: list[dict
 class Trip:
   def __init__(self, now_wall: float):
     self.start = self.end = now_wall
-    self.dist_m = self.max_mps = self.engaged_s = self.total_s = 0.0
-    self.disengagements = 0
+    self.dist_m = self.max_mps = self.engaged_s = self.total_s = self.steer_s = self.aol_s = 0.0
+    self.disengagements = self.distracted = self.unresponsive = 0
+    self.events: set = set()
     self.model = active_model_name()
 
-  def update(self, v_mps: float, engaged: bool, dt: float, now_wall: float) -> None:
+  def update(self, v_mps: float, engaged: bool, dt: float, now_wall: float, lat_active: bool = False) -> None:
     v = max(0.0, float(v_mps))
     self.dist_m += v * dt
     self.max_mps = max(self.max_mps, v)
     self.total_s += dt
     if engaged:
       self.engaged_s += dt
+    if lat_active:
+      self.steer_s += dt
+      if not engaged:
+        self.aol_s += dt                 # steering-only (MADS), Galaxy's "always-on lateral"
     self.end = now_wall
+
+  def update_events(self, names: set) -> None:
+    """Driver-monitoring alerts, counted once each time they come on (as Galaxy does)."""
+    self.distracted += stats.DISTRACTED_EVENT in names and stats.DISTRACTED_EVENT not in self.events
+    self.unresponsive += stats.UNRESPONSIVE_EVENT in names and stats.UNRESPONSIVE_EVENT not in self.events
+    self.events = names
 
   def row(self) -> dict:
     pct = round(100.0 * self.engaged_s / self.total_s) if self.total_s > 0 else 0
@@ -300,7 +312,9 @@ class Trip:
             "end": datetime.fromtimestamp(self.end).strftime("%H:%M"),
             "minutes": round(self.total_s / 60.0, 1), "km": round(self.dist_m / 1000.0, 2),
             "max_kph": round(self.max_mps * MPS_TO_KPH), "engaged_pct": pct,
-            "disengagements": self.disengagements, "model": self.model}
+            "disengagements": self.disengagements, "model": self.model,
+            "steer_pct": round(100.0 * self.steer_s / self.total_s) if self.total_s > 0 else 0,
+            "aol_min": round(self.aol_s / 60.0, 1), "distracted": self.distracted, "unresponsive": self.unresponsive}
 
   def summary(self) -> str:
     r = self.row()
@@ -453,7 +467,13 @@ class Telemetry:
       self._trim_track()
     self.prev_started = started
     if self.trip:
-      self.trip.update(v, engaged, dt, wall)
+      self.trip.update(v, engaged, dt, wall, lat_active)
+      try:                    # onroadEvents is published on every change (and once a second)
+        names = {str(e.name).split(".")[-1] for e in sm["onroadEvents"]}
+      except (KeyError, IndexError, TypeError, AttributeError):
+        names = None
+      if names is not None:
+        self.trip.update_events(names)
 
     if self.prev_engaged and not engaged and started:
       if self.trip:
@@ -627,7 +647,7 @@ class Telemetry:
       self.gps_service = "gpsLocation"
     self._init_param_readers()
     sm = messaging.SubMaster(["deviceState", "carState", "selfdriveState", "carControl", "controlsState", self.gps_service,
-                              "modelV2", *CAL_SERVICES])
+                              "modelV2", "onroadEvents", *CAL_SERVICES])
     # Measure real elapsed time: SubMaster.update() returns as soon as ANY message arrives
     # (carState is 100 Hz), so a fixed dt would inflate trip time/distance ~20x.
     period = 1.0 / LOOP_HZ
@@ -668,6 +688,9 @@ class Telemetry:
 
   def overrides_summary(self) -> dict:
     return summarize_overrides(read_csv_all(OVERRIDES_CSV), self.lat_km)
+
+  def drive_stats(self) -> dict:
+    return stats.summarize(read_csv_all(TRIPS_CSV), read_csv_all(OVERRIDES_CSV))
 
   def scorecard(self) -> dict:
     return model_scorecard(read_csv_all(TRIPS_CSV), read_csv_all(OVERRIDES_CSV))
